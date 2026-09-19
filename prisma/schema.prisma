@@ -1,0 +1,105 @@
+// Supply Chain Management — Prisma schema
+// Conventions (inherited from the scandihaven foundation):
+// - Money is stored as INTEGER minor units (cents). Floats never touch money.
+// - Velocity and other analytics are DERIVED from StockMovement history,
+//   never stored on Product (source of truth stays the movement ledger).
+// - Natural keys (sku, supplier name, order number, category) drive idempotent seeding.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Supplier {
+  id          String           @id @default(cuid())
+  name        String           @unique
+  contactName String
+  email       String
+  phone       String?
+  rating      Int              @default(3) // 1..5, validated in the domain layer
+  paymentTerms String          @default("Net 30")
+  leadTimeDays Int             @default(7)
+  notes       String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  products    Product[]
+  orders      PurchaseOrder[]
+}
+
+model Product {
+  id           String            @id @default(cuid())
+  name         String
+  sku          String            @unique
+  category     String
+  description  String?
+  imageUrl     String?
+  status       String            @default("Active") // Active | Discontinued
+  costMinor    Int               @default(0) // purchase cost, integer cents
+  priceMinor   Int               @default(0) // sale price, integer cents
+  stock        Int               @default(0)
+  reorderPoint Int               @default(10)
+  reorderQty   Int               @default(25)
+  leadTimeDays Int               @default(7)
+  location     String?
+  supplierId   String?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  supplier     Supplier?         @relation(fields: [supplierId], references: [id])
+  movements    StockMovement[]
+  orders       PurchaseOrder[]
+}
+
+model StockMovement {
+  id        String   @id @default(cuid())
+  productId String
+  delta     Int // signed quantity change; negative = sale, positive = restock
+  reason    String // sale | restock | adjustment | initial
+  createdAt DateTime @default(now())
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId, createdAt])
+}
+
+model PurchaseOrder {
+  id               String    @id @default(cuid())
+  orderNumber      String    @unique
+  productId        String
+  supplierId       String
+  quantity         Int
+  unitCostMinor    Int
+  status           String    @default("Suggested") // Suggested | Approved | Delivered | Cancelled
+  aiReasoning      String?
+  orderDate        DateTime  @default(now())
+  expectedDelivery DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  product          Product   @relation(fields: [productId], references: [id])
+  supplier         Supplier  @relation(fields: [supplierId], references: [id])
+
+  @@index([status])
+}
+
+model MarketTrend {
+  id          String   @id @default(cuid())
+  category    String   @unique
+  trendScore  Int      @default(50) // 0..100
+  changePct   Float    @default(0) // quarter-over-quarter, e.g. 14.5 = +14.5%
+  direction   String   @default("Stable") // Up | Down | Stable
+  quarter     String   @default("Q3 2026")
+  description String
+  source      String
+  updatedAt   DateTime @updatedAt
+}
