@@ -1,0 +1,638 @@
+# Supply Chain Management — Master Project Architecture Document (PAD) v1.0
+
+**Classification:** Internal Engineering Reference
+**Status:** DEFINITIVE, PRODUCTION-LOCKED BLUEPRINT
+**Companion Documents:** `README.md` (operator guide) · `AGENTS.md` (agent cheat-sheet) · `CLAUDE.md` (agent operating contract)
+**Last Updated:** 2026-09-20
+**Audience:** Senior Engineers, Tech Leads, DevOps, and Onboarding Engineers
+**Rule:** Every architectural decision in this document traces to a specific rationale. Nothing is here "because it's popular."
+
+---
+
+#### Revision Block — v1.0 (Tracked Changes)
+
+- `[SYN]` Initial blueprint: single-app Next.js 16 clone of the reference Base44 supply-chain application, adapted from the scandihaven foundation conventions (ActionResult boundaries, integer minor-unit money, derived analytics, strict TypeScript, provider-style pure seams) onto a Prisma/SQLite single deployable.
+- `[CA]` Velocity rule locked to `min(150, days-since-first-sale)` windowing after it reproduced the reference app's exact derived numbers (225 sales/150d = 1.5; 110 sales/137d = 0.8) where a bare 150-day average did not.
+- `[SR]` `buildAiReasoning` extended to four truth branches after audit found the three-branch version asserting "projected below reorder point" for a SKU whose projection (15) was above its trigger (10) — no reasoning sentence may contradict the data.
+- `[SAN]` Seed credentials externalized to `SEED_DEMO_EMAIL`/`SEED_DEMO_PASSWORD` so no real credential is committed; defaults are safe demo values.
+
+---
+
+## Table of Contents
+
+1. [System Overview & Decisions](#1-system-overview--decisions)
+2. [High-Level System Topology](#2-high-level-system-topology)
+3. [Application Architecture](#3-application-architecture)
+4. [Data Architecture](#4-data-architecture)
+5. [Design System Reference](#5-design-system-reference)
+6. [Security Architecture](#6-security-architecture)
+7. [Testing Strategy](#7-testing-strategy)
+8. [Build & Deployment](#8-build--deployment)
+9. [Developer Handbook](#9-developer-handbook)
+10. [Known Issues & Outstanding Tasks](#10-known-issues--outstanding-tasks)
+11. [Key Files Reference](#11-key-files-reference)
+12. [Glossary](#12-glossary)
+
+---
+
+## 1. System Overview & Decisions
+
+### 1.1 Document Metadata & Purpose
+
+This PAD is the single source of truth for the architecture of the Supply Chain Management application: a dashboard-driven inventory-intelligence app cloned from the reference Base44 application (`https://supply-chain-management-app.base44.app/`) with its full feature surface — dashboard KPIs, product catalog, AI replenishment suggestions, procurement lifecycle, supplier scorecards, and market trends — rebuilt as a production-grade single Next.js app.
+
+How to use this document:
+
+- **New engineer/agent** → read §1–§3, then §9 (handbook), then run the Quick Start in `README.md`.
+- **Debugging** → §3 (patterns + invariants) and §4 (data model) explain where behavior really lives.
+- **Reviewing tech choices or extending** → the ADRs in §1.3 record why each consequential decision was made and what alternatives were rejected.
+
+### 1.2 Technology Stack Summary
+
+| Layer | Technology | Version | Key Rationale |
+|-------|------------|---------|---------------|
+| Web framework | Next.js (App Router) | ≥16.1 | Server Components + Server Actions give the exact RSC/action model the scandihaven foundation validated; one deployable, no API layer to maintain |
+| UI runtime | React | 19 | Required by Next 16; matches foundation |
+| Language | TypeScript (strict) | 5 | `noImplicitAny` off in scaffold but `any` banned by ESLint; strict discipline maintained in product code |
+| Styling | Tailwind CSS (CSS-first `@theme`) | 4 | Token-driven theming identical to foundation; no config file drift |
+| UI primitives | shadcn/ui (New York) + lucide-react | — | Accessible Radix primitives out of the box; reference app's clean-SaaS look reproduced with tokens |
+| Charts | Recharts | 2 | Declarative SVG charts for trend/history/forecast; wraps cleanly in client islands |
+| ORM | Prisma | ≥6.11 | Typed client + schema-first migrations; SQLite provider for zero-config local dev with a portable schema |
+| Database | SQLite (file) | 3 | Zero-config, single-file persistence perfect for local/self-hosted deploys; schema stays PostgreSQL-portable |
+| Validation | Zod | 4 | Action-input validation with typed inference feeding `ActionResult` |
+| Auth | Hand-rolled scrypt + HMAC cookies | — | No third-party dependency; vetted node:crypto primitives; mirrors the foundation's signed-cookie pattern |
+| Runtime/PM | Bun | ≥1.1 | Single tool for install/run/scripts; TypeScript execution for seed/verification scripts without a build step |
+
+### 1.3 Architecture Decision Records (ADRs)
+
+**ADR-001: Single-app Next.js 16 instead of the scandihaven Turborepo monorepo**
+
+- **Context:** The foundation repo (scandihaven) is a pnpm/Turborepo monorepo (apps/web, apps/admin, packages/db/auth/commerce/ui) on Drizzle + PostgreSQL 17. The clone must be simple to run, push, and self-host as one repository.
+- **Decision:** Collapse to a single Next.js 16 app: `src/app` (routes), `src/server` (queries + actions), `src/domain` (pure logic), `src/lib` (db/session/env). Keep the foundation's *conventions* (layer direction, ActionResult, integer money, derived analytics) without its *packaging*.
+- **Rationale:** One deployable, one package.json, one database; the value of the foundation was its invariants, not its workspace graph. The layer discipline preserves the same dependency-direction guarantees inside a single package.
+- **Consequences:** No cross-package reuse, but also no turbo graph, no workspace cycles, no transpilePackages wiring. Internal boundaries are enforced by convention (documented in AGENTS.md) rather than by the build graph.
+- **Alternatives Rejected:** Full monorepo clone (operational overhead for a single-purpose app); separate API service + SPA (Server Actions remove the need).
+
+**ADR-002: Prisma + SQLite as the persistence layer**
+
+- **Context:** Foundation uses Drizzle + PostgreSQL 17 with docker-compose. The clone must boot with zero external services in any environment (including sandboxes and small self-hosted boxes).
+- **Decision:** Prisma ORM with the SQLite provider, database file at `db/custom.db`, relative URL `file:../db/custom.db` (Prisma resolves `file:` paths against `prisma/schema.prisma`).
+- **Rationale:** `bun install && db:push && db:seed && dev` works anywhere with no Docker. Prisma gives the typed client and schema-first workflow the query/action layers rely on.
+- **Consequences:** SQLite's single-writer concurrency is acceptable at demo/small-team scale; for scale-up the schema is portable — change the datasource provider and `DATABASE_URL` to PostgreSQL (documented in `.env.example`).
+- **Alternatives Rejected:** Drizzle + PG (needs a running database service to boot); in-memory stores (no persistence).
+
+**ADR-003: Movement ledger as the single source of truth for analytics**
+
+- **Context:** The reference app displays velocity, total sales, 90-day inventory-value trend, stock history, and demand forecasts. These could be denormalized onto `Product` for cheap reads.
+- **Decision:** A `StockMovement` ledger (delta, reason, timestamp) is the only stored stock history. Every analytic value — velocity, velocity delta, days of cover, low-stock score, inventory-value series, per-product stock history, forecast — is **derived at read time** by pure functions in `src/domain/replenishment.ts`.
+- **Rationale:** One truth, zero drift: no scheduled recomputation, no stale columns, no write-path that forgets to update analytics. The reference numbers were reproduced exactly by the engine from a seeded ledger (see `scripts/verify-analytics.ts`).
+- **Consequences:** Reads compute series from movements (bounded: ≤365 points × 6 products, milliseconds in SQLite). If the catalog grew by orders of magnitude, a materialized daily-rollup table would be the escape hatch — deliberately not built now (YAGNI, and the pure functions make that a drop-in change).
+- **Alternatives Rejected:** Denormalized columns (drift risk, double-write bugs); event-sourcing the entire domain (overkill for this scope).
+
+**ADR-004: Velocity = sales ÷ min(150, days-since-first-sale)**
+
+- **Context:** The reference app shows product velocity 1.5/day with 225 total sales, 0.8/day with 110 total sales. A bare 150-day trailing average yields 1.5 for the first but 0.73 for the second — it does not reproduce the reference.
+- **Decision:** The averaging window is `min(VELOCITY_WINDOW_DAYS=150, days since the product's first sale)` — i.e., average daily rate since ledger start, capped at 150 days.
+- **Rationale:** It reproduces every reference velocity exactly (225/150=1.5, 195 with 162d history→1.2, 110/137=0.8, 84/120=0.7, 54/135=0.4) and is well-defined for new products (rate since launch) and mature ones (150-day trailing).
+- **Consequences:** Recent product launches get "since launch" rates (correct for them); the rule is pinned by `verify-analytics` so a refactor that "simplifies" it fails the regression check.
+- **Alternatives Rejected:** Bare 150-day trailing average (contradicts reference data); EWMA (unexplainable to users, unverifiable against reference).
+
+**ADR-005: Server Actions with an ActionResult<T> boundary (no REST for UI)**
+
+- **Context:** Mutations needed: create product, approve/dismiss suggestion, order status transitions, generate suggestions, auth. The foundation's rule: mutations go through Server Actions returning `ActionResult<T>`, never throw across the boundary; route handlers exist only for webhooks/health.
+- **Decision:** All mutations live in `src/server/actions.ts` as `'use server'` functions validated by Zod and wrapped by `toActionResult`. The only route handlers are read-only: `/api/health` and `/api/suppliers` (New Product dialog data).
+- **Rationale:** One error contract for the UI (`result.ok ? data : message`), server-side detail stays in logs, and no REST surface to secure/version/document. Input validation happens before any DB touch.
+- **Consequences:** The browser is the only mutation client; if a public API is later needed it can wrap the same action bodies. `revalidatePath` calls are explicit per affected route.
+- **Alternatives Rejected:** REST/JSON API routes (larger surface, duplication of validation and error shapes); tRPC (adds a dependency for a single-client app).
+
+**ADR-006: Deterministic template "AI" with an LLM-ready seam**
+
+- **Context:** The reference app's "AI Suggestions" carry reasoning text. Calling an LLM at read time would add latency, cost, and nondeterminism; the repo must run standalone.
+- **Decision:** Suggestion reasoning is generated by `buildAiReasoning()` — a pure function that composes sentences from the product's real stock, velocity, projection, and lead-time numbers, with **four truth branches** (out of stock / at reorder point / projected below trigger / healthy-buffer). The replenishment trigger and suggested quantity likewise come from pure rules (`needsReplenishment`, `suggestedOrderQty`).
+- **Rationale:** Zero-dependency, deterministic, and truthful — every sentence cites live numbers, and the branch structure guarantees the text can't contradict the data. An LLM provider can be layered behind the same function signature later (documented seam) without touching call sites.
+- **Consequences:** No natural-language variety; acceptable for a control-room tool where consistency reads as reliability.
+- **Alternatives Rejected:** LLM at read time (latency/cost/nondeterminism, external dependency); static stored prose (goes stale the moment stock moves).
+
+**ADR-007: Hand-rolled scrypt + HMAC cookie auth**
+
+- **Context:** The app needs sign-in/out with an avatar (reference behavior), public read-only browsing, and no third-party identity provider in the deployment story.
+- **Decision:** `User` table with `scrypt:salt:hex` password hashes; sessions are stateless cookies `userId.expiry.hmac(secret)` signed with `SESSION_SECRET` (timing-safe comparison); verify/refresh handled in `src/lib/session.ts`.
+- **Rationale:** ~90 lines of vetted `node:crypto` primitives instead of an auth framework; mirrors the foundation's signed-cookie pattern; no callbacks/redirect tables to configure.
+- **Consequences:** No OAuth/social login, no email verification flows — out of scope for the clone. If those land later, Better-Auth/NextAuth can replace the session seam without touching pages (only `getSessionUser` callers).
+- **Alternatives Rejected:** NextAuth v4 (heavy for a single local account model); storing plaintext or unsalted hashes (non-negotiable security failure).
+
+---
+
+## 2. High-Level System Topology
+
+```mermaid
+flowchart TB
+    subgraph Edge
+        LB[Reverse proxy / TLS terminator]
+    end
+    subgraph Runtime[Bun process — Next.js 16 standalone]
+        RSC[Server Components<br/>force-dynamic pages]
+        SA[Server Actions<br/>zod → ActionResult]
+        RH[Route handlers<br/>/api/health · /api/suppliers]
+        Q[Query layer<br/>src/server/queries.ts]
+        DOM[Domain engine<br/>src/domain/replenishment.ts]
+        SESS[Session layer<br/>HMAC cookie]
+    end
+    subgraph Storage
+        DB[(db/custom.db — SQLite<br/>Product · Supplier · StockMovement<br/>PurchaseOrder · MarketTrend · User)]
+    end
+    U[User's browser] --> LB --> RSC
+    U -- mutations --> SA
+    RSC --> Q
+    SA --> Q
+    RSC --> SESS
+    SA --> SESS
+    Q --> DOM
+    SA --> DOM
+    Q --> DB
+    SA --> DB
+    LB --> RH --> DB
+```
+
+- **Runtime:** a single Bun/Node process serving the standalone Next.js build; all state lives in SQLite; no cache/queue/search services (local-memory caching only, per stack policy).
+- **Scaling characteristics:** stateless app tier (session is a signed cookie) behind any load balancer using `/api/health` as the readiness probe; SQLite constrains write concurrency — the documented scale-up path is switching the Prisma provider to PostgreSQL (ADR-002).
+- **Key constraints:** every page is dynamic (cookies in the root layout); mutations are POST-only via Server Actions; the only public JSON surface is the two GET route handlers.
+
+---
+
+## 3. Application Architecture
+
+### 3.1 The Layer Model
+
+The Golden Rule: **dependencies point strictly downward; the domain layer imports nothing.**
+
+```
+Layer 0: src/domain     — pure business logic (replenishment, money, result, types).
+                            Rule: zero imports from app/server/lib; I/O-free; deterministic.
+Layer 1: src/lib        — runtime seams (Prisma client, session, env validation, utils).
+                            Rule: no business rules here, only infrastructure.
+Layer 2: src/server     — queries.ts (all reads) + actions.ts (all mutations).
+                            Rule: the ONLY files that touch Prisma; actions validate with
+                            zod and return ActionResult; queries shape domain view types.
+Layer 3: src/app +      — routes (server components) and client islands
+         src/components — (dialogs, filters, charts, feed actions).
+                            Rule: no direct Prisma imports; no business math — call layers 2/0.
+```
+
+### 3.2 Annotated Directory Structure
+
+```
+supply-chain-management/
+├── prisma/
+│   ├── schema.prisma            ← 6 models; money as Int minor units; natural keys
+│   └── seed.ts                  ← idempotent seed; self-balancing ledger builder
+├── scripts/
+│   └── verify-analytics.ts      ← DB-backed KPI regression vs reference values
+├── docs/
+│   └── screenshots/             ← browser-verified captures of every page
+├── src/
+│   ├── app/
+│   │   ├── layout.tsx           ← Inter font, metadata, session read, AppShell
+│   │   ├── globals.css          ← Tailwind v4 @theme + brand tokens (:root)
+│   │   ├── page.tsx             ← Dashboard (KPIs, charts, movers, stock feed)
+│   │   ├── products/
+│   │   │   ├── page.tsx         ← catalog table + URL-driven filters
+│   │   │   └── [id]/page.tsx    ← detail: stats, policy, charts, PO history
+│   │   ├── ai-suggestions/page.tsx  ← pending suggestions + reasoning accordions
+│   │   ├── purchase-orders/page.tsx ← procurement table + status filter
+│   │   ├── suppliers/page.tsx   ← partner scorecards
+│   │   ├── market-trends/page.tsx   ← category signal cards
+│   │   └── api/
+│   │       ├── health/route.ts  ← liveness + DB probe
+│   │       └── suppliers/route.ts ← supplier options for the New Product dialog
+│   ├── components/
+│   │   ├── app/
+│   │   │   ├── app-shell.tsx    ← header + nav rail + rounded content container
+│   │   │   ├── header-bar.tsx   ← brand tabs, New Product, auth area (client)
+│   │   │   ├── nav-sidebar.tsx  ← active-state nav pills (client, usePathname)
+│   │   │   ├── new-product-dialog.tsx ← creation form → createProductAction
+│   │   │   ├── sign-in-dialog.tsx     ← email/password → signIn/signUpAction
+│   │   │   ├── kpi-card.tsx     ← black/white/orange KPI tiles (link-wrapped)
+│   │   │   ├── kpi-gauges.tsx   ← SVG semicircle gauge + low-stock bar
+│   │   │   ├── inventory-value-chart.tsx ← recharts 90-day area (client)
+│   │   │   ├── product-charts.tsx      ← stock history line + forecast band
+│   │   │   ├── stock-feed.tsx   ← replenishment feed + Order/Review actions
+│   │   │   ├── suggestion-row.tsx      ← reasoning accordion + approve/dismiss
+│   │   │   ├── products-filters.tsx    ← URL-param search/category/status
+│   │   │   ├── order-filters.tsx       ← URL-param search/status
+│   │   │   └── order-status-badge.tsx  ← status pill (shared; NOT in a page file)
+│   │   └── ui/                  ← shadcn/ui primitives (unmodified)
+│   ├── domain/
+│   │   ├── replenishment.ts     ← THE engine: velocity, projections, forecast,
+│   │   │                           low-stock score, series replay, reasoning text
+│   │   ├── money.ts             ← integer minor units: format/parse/line totals
+│   │   ├── result.ts            ← ActionResult<T> + ok/fail/toActionResult
+│   │   └── types.ts             ← domain view types (no persistence shapes)
+│   ├── server/
+│   │   ├── queries.ts           ← every read, shaped into view types
+│   │   └── actions.ts           ← every mutation: zod → ActionResult → revalidate
+│   └── lib/
+│       ├── db.ts                ← Prisma singleton (globalThis in dev)
+│       ├── session.ts           ← scrypt verify + HMAC cookie sessions
+│       ├── env.ts               ← parseServerEnv fail-fast contract
+│       └── utils.ts             ← cn() tailwind merge
+├── AGENTS.md · CLAUDE.md · README.md · Project_Architecture_Document.md
+└── .env.example                 ← the environment contract
+```
+
+### 3.3 Critical Code Patterns
+
+**Pattern 1 — the ActionResult action (mutation contract)**
+
+```typescript
+// src/server/actions.ts — every mutation follows this exact shape.
+export async function approveSuggestionAction(orderId: string): Promise<ActionResult<{ orderNumber: string }>> {
+  return toActionResult(async () => {
+    const id = z.string().min(1).safeParse(orderId);          // 1. validate input
+    if (!id.success) return fail('VALIDATION', 'Order id is required');
+
+    const order = await db.purchaseOrder.findUnique({ where: { id: orderId } });
+    if (!order) return fail('NOT_FOUND', 'Purchase order not found');   // 2. typed failures
+    if (order.status !== 'Suggested')
+      return fail('DOMAIN', `Order ${order.orderNumber} is already ${order.status}`);
+
+    await db.purchaseOrder.update({ where: { id: orderId }, data: { status: 'Approved' } });
+    console.info('[action] suggestion approved', { order: order.orderNumber }); // 3. operator log
+    revalidatePath('/'); revalidatePath('/ai-suggestions'); revalidatePath('/purchase-orders');
+    return ok({ orderNumber: order.orderNumber });            // 4. typed success
+  });
+}
+```
+
+*Why this pattern:* the UI has exactly one error contract (`result.ok ? data : toast(result.message)`); thrown internals become `INTERNAL` inside `toActionResult` with the stack logged server-side only; every failure names its class (VALIDATION/DOMAIN/NOT_FOUND/INTERNAL) so toasts and logs stay actionable.
+
+**Pattern 2 — derived analytics from the ledger (read-side contract)**
+
+```typescript
+// src/domain/replenishment.ts — velocity is computed, never stored.
+export function velocityPerDay(movements: MovementRecord[], now: Date): number {
+  const sales = movements.filter((m) => m.reason === 'sale' && m.delta < 0);
+  if (sales.length === 0) return 0;
+  const firstSaleMs = Math.min(...sales.map((m) => m.occurredAt.getTime()));
+  const firstSaleAgeDays = Math.max(1, Math.ceil((now.getTime() - firstSaleMs) / 86_400_000));
+  const effectiveWindow = Math.min(VELOCITY_WINDOW_DAYS, firstSaleAgeDays); // ADR-004
+  const inWindow = salesInWindow(movements, effectiveWindow, now);
+  return round1(inWindow / effectiveWindow);
+}
+```
+
+*Why this pattern:* the ledger stays the only stock history; the query layer feeds `MovementRecord[]` rows to pure functions, so the same math serves the dashboard KPIs, the products table, the detail charts, and the suggestion engine — one definition, zero drift. The window rule is pinned by `verify-analytics`.
+
+**Pattern 3 — guarded status transitions with ledger side effects**
+
+```typescript
+// src/server/actions.ts — the purchase-order state machine.
+const allowedStatusTransitions: Record<string, string[]> = {
+  Suggested: ['Approved', 'Cancelled'],
+  Approved:  ['Delivered', 'Cancelled'],
+  Delivered: [],
+  Cancelled: [],
+};
+// ... inside the action:
+if (!allowed.includes(nextStatus))
+  return fail('DOMAIN', `Cannot move order ${order.orderNumber} from ${order.status} to ${nextStatus}`);
+await db.purchaseOrder.update({ where: { id: orderId }, data: { status: nextStatus } });
+if (nextStatus === 'Delivered') {                    // receiving lands in the warehouse
+  await db.product.update({ where: { id: order.productId }, data: { stock: { increment: order.quantity } } });
+  await db.stockMovement.create({ data: { productId: order.productId, delta: order.quantity, reason: 'restock' } });
+}
+```
+
+*Why this pattern:* illegal lifecycle moves are impossible (single matrix, no inline string checks), and the one transition with physical meaning (delivery) updates BOTH the stock column and the ledger in the same action — so derived analytics stay consistent with stored stock forever.
+
+**Pattern 4 — self-balancing seed ledger (test-data integrity)**
+
+```typescript
+// prisma/seed.ts — the ledger builder refuses impossible histories.
+// Rebalance loop: if the simulated running stock dips below zero, raise the
+// initial count and shrink the final restock by the same deficit, preserving
+// the exact ending stock. Throws with a precise message when the target is
+// unreachable — bad seed edits fail loudly at seed time, not at render time.
+```
+
+*Why this pattern:* demo data that "looks right" but encodes negative stock would poison every chart and KPI; the builder proves balance invariants (never negative, ends exactly at target) before writing 577 movements.
+
+**Pattern 5 — signed stateless sessions**
+
+```typescript
+// src/lib/session.ts — cookie value: userId.expiry.hmac(secret)
+const expected = sign(payload);                        // HMAC-SHA256(SESSION_SECRET)
+const a = Buffer.from(mac, 'utf8'), b = Buffer.from(expected, 'utf8');
+if (a.length !== b.length || !timingSafeEqual(a, b)) return null;   // tamper-proof
+if (expiry < now.getTime()) return null;                            // self-expiring
+```
+
+*Why this pattern:* no session table, no cache dependency, no auth framework; comparison is timing-safe; production boot refuses the placeholder secret (env validation). Signing in is one cookie write; signing out is one delete.
+
+---
+
+## 4. Data Architecture
+
+### 4.1 Database Schema
+
+```mermaid
+erDiagram
+    SUPPLIER ||--o{ PRODUCT : supplies
+    SUPPLIER ||--o{ PURCHASE_ORDER : fulfills
+    PRODUCT ||--o{ STOCK_MOVEMENT : records
+    PRODUCT ||--o{ PURCHASE_ORDER : "ordered in"
+    SUPPLIER {
+        string id PK
+        string name UK "natural key"
+        string contactName
+        string email
+        int rating "1..5"
+        string paymentTerms "Net 30/45/60"
+        int leadTimeDays
+        datetime createdAt
+        datetime updatedAt
+    }
+    PRODUCT {
+        string id PK
+        string sku UK "natural key"
+        string name
+        string category
+        string status "Active|Discontinued"
+        int costMinor "integer cents"
+        int priceMinor "integer cents"
+        int stock
+        int reorderPoint
+        int reorderQty
+        int leadTimeDays
+        string location
+        string supplierId FK
+    }
+    STOCK_MOVEMENT {
+        string id PK
+        string productId FK
+        int delta "signed; negative = sale"
+        string reason "initial|restock|sale|adjustment"
+        datetime createdAt
+    }
+    PURCHASE_ORDER {
+        string id PK
+        string orderNumber UK "hex counter e.g. 2AF142"
+        string productId FK
+        string supplierId FK
+        int quantity
+        int unitCostMinor
+        string status "Suggested|Approved|Delivered|Cancelled"
+        string aiReasoning "engine-generated"
+        datetime orderDate
+        datetime expectedDelivery
+    }
+    MARKET_TREND {
+        string id PK
+        string category UK
+        int trendScore "0..100"
+        float changePct
+        string direction "Up|Down|Stable"
+        string quarter
+        string description
+        string source
+    }
+    USER {
+        string id PK
+        string email UK
+        string passwordHash "scrypt:salt:hex"
+    }
+```
+
+### 4.2 Data Models
+
+Domain view types (what the UI consumes) are declared in `src/domain/types.ts` — `ProductAnalytics`, `StockFeedItem`, `InventoryValuePoint`, `ForecastPoint`, `SupplierView`, `MarketTrendView`, `SuggestionRow` shapes — decoupled from Prisma models so presentation never imports generated types and the domain layer stays pure.
+
+### 4.3 Persistence Strategy
+
+- **Connection management:** Prisma client singleton on `globalThis` in development (`src/lib/db.ts`), created once per process; SQLite file `db/custom.db`.
+- **Idempotent seeding:** natural-key upserts (`sku`, supplier `name`, `orderNumber`, `category`, user `email`); ledger movements are created only when a product has none — re-seeding never wipes runtime history, but deliberately resets the 15 seeded purchase orders (documented demo-reset behavior).
+- **Schema evolution:** `bun run db:push` for local iteration; the migration workflow (`db:migrate`) is available when history matters. All money deltas flow through integer arithmetic (`lineTotalMinor`); no floats ever persist.
+- **Indexes:** `StockMovement(productId, createdAt)` for ledger scans; `PurchaseOrder(status)` for the suggestion queue.
+
+---
+
+## 5. Design System Reference
+
+### 5.1 Typographic System
+
+| Role | Font | Weight/Size |
+|------|------|-------------|
+| KPI numerals | Inter | extrabold, ~36–40px |
+| Page titles (h1) | Inter | bold 24px |
+| Section headings (h2) | Inter | semibold 18px |
+| Body / table text | Inter | regular 14–15px |
+| SKUs, order numbers | system mono | 12–14px |
+| Muted labels | Inter | medium, `--muted-foreground` |
+
+Loaded via `next/font/google` (`Inter`, latin subset, `--font-inter` CSS variable).
+
+### 5.2 Color Tokens
+
+| Token | Hex | Usage | Contrast notes |
+|-------|-----|-------|----------------|
+| `--primary` | `#F97316` | Active tab, CTAs, chart line, gauge arcs, Inventory Value card | Black text on orange (primary-foreground `#111111`) ≈ 7.6:1 — reference app's signature black-on-orange |
+| `--background` | `#F3F4F6` | App background, gray surfaces | — |
+| `--foreground` | `#111827` | Primary text | 15.8:1 on white |
+| `--muted-foreground` | `#6B7280` | Secondary text | 4.8:1 on white (AA for body) |
+| `--destructive` | `#EF4444` | Out of stock, low stock, declining trends, error toasts | — |
+| `--success` | `#22C55E` | Rising trends, approved badge, positive deltas | paired with `#15803d` text for AA |
+| `--secondary` | `#E5E7EB` | Inactive nav pills, feed surfaces | — |
+| KPI black tile | `#000000` + orange numeral | Total SKUs card | — |
+| KPI orange tile | `#F97316` + white text | Inventory Value card | large bold text |
+
+### 5.3 Component Primitives
+
+shadcn/ui (New York) provides Dialog, Select, Button, Input, Label, Textarea, Badge, Toaster; app-specific composites sit in `src/components/app/` and obey the geometry cloned from the reference: 224px nav rail, 60px pill nav items, 50px header, 32px-radius white content container with `0 1px 2px rgba(0,0,0,0.05)` elevation.
+
+### 5.4 Motion / Animation
+
+Subtle transitions only: card hover lift (`hover:-translate-y-0.5`), accordion chevron rotation, shadcn enter/exit animations. No global motion library; reduced-motion is respected by Radix primitives.
+
+---
+
+## 6. Security Architecture
+
+### 6.1 Security Rules
+
+| Rule | Enforcement |
+|------|-------------|
+| No secrets in the tree | `.gitignore` rejects `.env`, `*.key`, `db/*.db`; seed credentials come from env, never literals |
+| All action input validated | Zod schemas at the top of every action; `ActionResult('VALIDATION')` on failure |
+| Passwords hashed with scrypt + per-user salt | `hashPassword()` / `verifyPassword()` in `src/lib/session.ts`; timing-safe comparison |
+| Sessions tamper-proof and expiring | HMAC-SHA256 over `userId.expiry`; `timingSafeEqual`; 30-day TTL; `httpOnly`, `sameSite=lax`, `secure` in production |
+| No SQL injection surface | Prisma parameterized queries only; no raw string concatenation |
+| Auth failures are vague by design | Sign-in returns the same "Invalid email or password" whether the email or the password failed |
+| Boot-time secret enforcement | `parseServerEnv()` refuses the placeholder `SESSION_SECRET` when `NODE_ENV=production` |
+| No privilege escalation via URLs | All routes public-read (reference behavior); mutations require no auth but write operator-attributed logs (`[action] ... by: session?.email ?? 'anonymous'`) |
+| DOM injection | React escaping everywhere; no `dangerouslySetInnerHTML` in the codebase |
+
+### 6.2 Security Utilities
+
+`src/lib/session.ts` (scrypt, HMAC, cookie lifecycle) · `src/lib/env.ts` (fail-fast env contract) · zod schemas in `src/server/actions.ts` (input firewall).
+
+### 6.3 Authentication & Authorization
+
+Model: single-role local accounts. Sign-up is open (mirrors the reference's account offer); sessions are stateless signed cookies; there is no admin/employee split — the app treats every signed-in user as an operator and anonymous visitors as read-only viewers (the reference app's exact visibility model).
+
+### 6.4 Threat Model
+
+| Vector | Mitigation |
+|--------|-----------|
+| Cookie forgery | HMAC signature + timing-safe compare; secret required in prod |
+| Password DB leak | scrypt with 16-byte salt and 64-byte output; no plaintext anywhere |
+| Action abuse (no-auth mutations) | Acceptable for the demo posture (matches reference); mutations are idempotent-guarded (status matrix), logged with session attribution; tighten by adding a session check inside actions if the deployment goes multi-tenant |
+| XSS | React auto-escaping; no raw HTML; external URLs only in `mailto:` links and image fields |
+| Data exfiltration via filters | Search/category/status params are parameterized Prisma queries with whitelisted select values |
+
+---
+
+## 7. Testing Strategy
+
+### 7.1 Test Distribution
+
+| Category | Count | Location | Framework |
+|----------|-------|----------|-----------|
+| Static gate — lint | 0 errors | repo-wide | ESLint 9 (flat, next config) |
+| Static gate — types | 0 errors | `src/`, `prisma/`, `scripts/` | `tsc --noEmit` (strict) |
+| Analytics regression | 10 assertions | `scripts/verify-analytics.ts` | Bun + Prisma (DB-backed) |
+| Seed invariants | runtime guards | `prisma/seed.ts` | self-balancing ledger builder throws |
+| E2E golden paths | 6 flows | manual/browser automation | agent-browser session scripts |
+
+### 7.2 Test Patterns
+
+- **Reference-value regression:** `verify-analytics` asserts the seeded ledger reproduces the reference KPIs (velocity 1.5/1.2/0.8/0.7/0.4/0.0; low-stock score −1; 11 suggestions; series end equals live inventory value) — this pins ADR-003/004 against refactor drift.
+- **Invariant-enforcing seed:** the ledger builder validates never-negative stock and exact ending balance before writing — data bugs fail at seed time with precise messages.
+- **Browser-verified flows:** sign-in, product creation (dialog → redirect), suggestion approval (11→10), sign-out, health probe, and per-page rendering are exercised end-to-end with zero console/page errors (captures in `docs/screenshots/`).
+
+### 7.3 Coverage Thresholds
+
+No numeric coverage gate is configured (no hosted CI yet — see §10); the mandatory pre-push gate is: `bun run lint && bun run typecheck && bun run verify:analytics` all green.
+
+### 7.4 Pre-PR / Pre-Deploy Checklist
+
+- [ ] `bun run lint` exits 0
+- [ ] `bun run typecheck` exits 0
+- [ ] `bun run verify:analytics` passes
+- [ ] Dev server renders all 7 routes without console errors
+- [ ] Any schema change followed by `db:push` + `db:seed` + doc updates (AGENTS/PAD §data)
+
+---
+
+## 8. Build & Deployment
+
+### 8.1 Production Build
+
+```bash
+bun run build    # next build + standalone output assembly
+bun run start    # NODE_ENV=production, standalone server on :3000
+```
+
+Output: `.next/standalone/` self-contained server (static assets copied in by the build script).
+
+### 8.2 Environment Variables
+
+| Name | Required | Description | Default |
+|------|----------|-------------|---------|
+| `DATABASE_URL` | ✅ | SQLite `file:` URL (relative resolves against `prisma/`) or PostgreSQL URL | — |
+| `SESSION_SECRET` | production | HMAC secret for session cookies (`openssl rand -base64 32`) | insecure dev placeholder (refused in prod) |
+| `SEED_DEMO_EMAIL` | ⬜ | Demo account email | `demo@supplychain.local` |
+| `SEED_DEMO_PASSWORD` | ⬜ | Demo account password | `demo-password` |
+
+### 8.3 Docker Configuration
+
+None shipped (deliberate: zero-service local story). The standalone build is Docker-ready: `bun install --production && bun run build`, then run the standalone server as the entrypoint with `db/` mounted as a volume.
+
+### 8.4 CI/CD Pipeline
+
+No hosted CI yet (repo has no workflows). The local gate is the gate: lint → typecheck → verify:analytics → build. Readiness probe for any future pipeline or load balancer: `GET /api/health` → `{"status":"ok","database":"up"}`.
+
+---
+
+## 9. Developer Handbook
+
+### 9.1 Local Setup
+
+```bash
+bun install
+cp .env.example .env
+bun run db:push && bun run db:seed
+bun run dev                     # http://localhost:3000
+```
+
+Full setup (with verification) in `README.md` §Quick Start.
+
+### 9.2 Common Commands
+
+| Command | Location | Purpose |
+|---------|----------|---------|
+| `bun run dev` | repo root | Dev server (Turbopack) with `dev.log` |
+| `bun run lint` / `typecheck` | repo root | Static gates |
+| `bun run db:push` / `db:seed` | repo root | Schema push / idempotent demo data |
+| `bun run verify:analytics` | repo root | KPI regression check |
+| `bun run build` / `start` | repo root | Production build / serve |
+
+### 9.3 Code Style Rules
+
+- Strict TypeScript; `any` banned; `@/*` alias to `src/*`
+- Server components by default; `'use client'` only for interactivity islands
+- Actions: zod-validate → typed failure → mutation → `[action]` log → `revalidatePath` → `ok()`
+- Money: integer cents through `src/domain/money.ts`
+- Component files for shared UI (never named exports from page files)
+
+### 9.4 Git Workflow
+
+- `main`-only long-lived branch; Conventional Commits; atomic changes
+- Never commit `.env`, `db/*.db`, or any key material
+- Push target: `git@github.com:nordeim/supply-chain-management.git` (deploy key outside the repo; see `docs/how-to-git-push-using-ssh-wrapper_SKILL.md` for the wrapper procedure)
+
+---
+
+## 10. Known Issues & Outstanding Tasks
+
+| Priority | Issue | Impact | Status |
+|----------|-------|--------|--------|
+| Medium | Mutations do not require a session (reference-parity choice) | Anonymous visitors can approve orders in a public deployment | Open — add session check in actions before multi-tenant exposure |
+| Medium | No numeric test-coverage gate | Regression surface limited to lint/type/verify:analytics | Open — add a vitest suite for `src/domain/*` |
+| Low | Inventory value uses cost basis; reference's exact $202,610 basis is undocumented | Dashboard shows derived $135,360 instead of the reference's demo figure | Accepted — honest derivation preferred over matching opaque demo data |
+| Low | Velocity-delta badges differ from reference's "+2/−1" semantics | Cosmetic difference on the top-movers list | Accepted — documented honest computation (30d-vs-30d rate change) |
+| Low | No hosted CI | Local gate is the only gate | Open — add GitHub Actions running the §7.4 checklist |
+
+---
+
+## 11. Key Files Reference
+
+| File | Lines (approx) | Purpose |
+|------|-------|---------|
+| `src/domain/replenishment.ts` | ~330 | The engine: velocity, projections, forecast, low-stock score, series replay, reasoning text |
+| `src/server/actions.ts` | ~290 | Every mutation (products, suggestions, order lifecycle, auth) behind the ActionResult boundary |
+| `src/server/queries.ts` | ~330 | Every read; feeds the domain engine and shapes view types |
+| `prisma/seed.ts` | ~450 | Idempotent seed + self-balancing ledger builder |
+| `src/app/page.tsx` | ~150 | Dashboard composition |
+| `src/components/app/app-shell.tsx` | ~30 | Layout geometry (header/rail/container) |
+| `src/components/app/header-bar.tsx` | ~100 | Brand tabs, New Product dialog mount, auth area |
+| `src/components/app/stock-feed.tsx` | ~140 | Replenishment feed + Order/Review actions |
+| `src/components/app/suggestion-row.tsx` | ~110 | Reasoning accordion + approve/dismiss |
+| `src/lib/session.ts` | ~90 | scrypt verify + HMAC cookie sessions |
+| `scripts/verify-analytics.ts` | ~100 | KPI regression vs reference values |
+
+---
+
+## 12. Glossary
+
+| Term | Definition |
+|------|-----------|
+| **Minor units** | Money in integer cents; the only persisted money representation |
+| **Movement ledger** | The `StockMovement` table — every stock delta (initial/restock/sale/adjustment); the source of truth for all analytics |
+| **Velocity** | Units sold per day, averaged over `min(150, days since first sale)` (ADR-004) |
+| **Days of cover** | Current stock ÷ velocity; null when velocity is 0 |
+| **Low-stock score** | Deepest reorder-point shortfall across the catalog, in reorder-point decades, clamped to [−20, 0] (the reference app's −1 KPI semantic) |
+| **Suggestion** | A purchase order in `Suggested` status produced by the replenishment engine |
+| **Pending POS** | Count of purchase orders awaiting approval (Suggested) |
+| **ActionResult** | `{ ok: true, data } | { ok: false, code, message }` — the action-boundary contract |
+| **Natural key** | Business identifier used for idempotent seed upserts (SKU, supplier name, order number, category, email) |
+| **Engine product** | The pure-function input shape (`stock`, `reorderPoint`, `reorderQty`, lead times, movements) the domain engine reasons over |
