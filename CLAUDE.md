@@ -28,7 +28,7 @@ Follow this six-phase workflow for all implementation tasks:
 - **Derived over stored analytics.** Velocity, KPI scores, forecasts, and reasoning text are computed from the `StockMovement` ledger by pure functions in `src/domain/` — never denormalized into columns.
 - **Money is integer cents.** No exceptions; `src/domain/money.ts` is the only formatting seam.
 - **Truthful AI text.** Suggestion reasoning is composed from real numbers (`buildAiReasoning`) with four branches so no sentence can contradict the data.
-- **Server Actions for mutations,ActionResult-shaped.** No REST-for-UI, no thrown errors across the boundary.
+- **Server Actions for mutations, ActionResult-shaped.** No REST-for-UI, no thrown errors across the boundary. Admin lifecycle actions (approve/dismiss/status/generate) require a signed-in session (`requireSignedIn` → `UNAUTHENTICATED`); the reference-parity surfaces (New Product, auth, reads) stay open.
 
 ## Implementation Standards
 
@@ -90,24 +90,27 @@ Optional demo sign-in account (seeded): `demo@supplychain.local` / `demo-passwor
 | `bun run lint` | Run linter |
 | `bun run typecheck` | Type checking |
 | `bun run db:push` / `db:seed` / `verify:analytics` | Database schema / demo data / KPI regression check |
-| `bun run test` / `test:watch` | Vitest unit suite (52 domain tests) / watch mode |
+| `bun run test` / `test:watch` / `test:coverage` | Vitest unit suite (85 tests) / watch mode / with coverage thresholds |
 | `bun run test:e2e` | Playwright E2E (31 chromium tests, `next start` on :3002; build first) |
 
 ## Testing Strategy
 
 ### Test Pyramid
-- **Unit Tests (Vitest, 52)**: pure domain functions in `src/domain/*.test.ts` — velocity windows, low-stock scoring, reorder-quantity math, forecasting, 30-day sales deltas, money formatting/parsing, ActionResult shape, gauge/tick-scale helpers, and the reference reasoning sentence. TDD: Red → Green → Refactor; tests are colocated with the modules they cover.
+- **Unit Tests (Vitest, 85)**: pure domain functions in `src/domain/*.test.ts` plus the env contract in `src/lib/env.test.ts` — velocity windows, low-stock scoring, reorder-quantity math, forecasting, 30-day sales deltas, ledger day-series replay, money formatting/parsing, ActionResult shape, gauge/tick-scale helpers, the session guard, and the reference reasoning sentence. TDD: Red → Green → Refactor; tests are colocated with the modules they cover. `bun run test:coverage` enforces 95/85/95/95 thresholds over the pure layer.
 - **Integration Check**: `scripts/verify-analytics.ts` — asserts the seeded ledger reproduces the reference KPIs (velocity 1.5/1.2/0.8/0.7/0.4/0.0, low-stock score −1, 11 pending suggestions, inventory value $202,610 cost basis, movers badges +2/−1/0/+1/+2, 90-day series integrity)
 - **E2E (Playwright, 31 chromium tests)**: `e2e/*.spec.ts` run against the production build (`next start`, not dev) — every page renders with reference data, sign-in/out with the seeded demo account, product search, status filter, Order Details side panel, supplier detail navigation, AI reasoning expansion, health probe. Webkit project is configured but needs system libraries; run `--project=chromium` where unavailable.
 
 ### Test Commands
 
 ```bash
-bun run test                       # 52 unit tests — no DB required
+bun run test                       # 85 unit tests — no DB required
+bun run test:coverage              # same suite + v8 coverage thresholds (95/85/95/95)
 bun run verify:analytics           # DB-backed regression check against reference values
 bun run lint && bun run typecheck  # static gates — both must exit 0
 bun run build && bun run test:e2e  # full browser E2E against the shipped artifact
 ```
+
+CI (`.github/workflows/ci.yml`) runs this exact sequence on every push/PR to main, plus the seed + analytics gates; the webkit E2E project runs in a non-blocking exploratory job.
 
 ## Code Quality Standards
 
@@ -180,7 +183,7 @@ scripts/        → verification tooling
 | Variable | Required | Purpose | Example |
 |----------|----------|---------|---------|
 | `DATABASE_URL` | yes | SQLite (or PostgreSQL) connection | `file:../db/custom.db` |
-| `SESSION_SECRET` | prod | HMAC secret for session cookies | `openssl rand -base64 32` |
+| `SESSION_SECRET` | prod | HMAC secret for session cookies — enforced at session-signing time via `getServerEnv()` | `openssl rand -base64 32` |
 | `SEED_DEMO_EMAIL` | no | Demo sign-in email | `demo@supplychain.local` |
 | `SEED_DEMO_PASSWORD` | no | Demo sign-in password | `demo-password` |
 | `E2E_PORT` | no | Playwright web server port | `3002` |
@@ -189,7 +192,7 @@ scripts/        → verification tooling
 ## Success Metrics
 
 You are successful when:
-- `bun run lint`, `bun run typecheck`, `bun run test`, and `bun run verify:analytics` all pass
+- `bun run lint`, `bun run typecheck`, `bun run test` (or `test:coverage`), and `bun run verify:analytics` all pass
 - `bun run build && bun run test:e2e` passes (31 chromium tests) after UI changes
 - The dashboard KPIs match the derived ledger state (no stale or denormalized numbers) and the reference values ($202,610 inventory value, 6 SKUs, −1 low stock, 11 pending suggestions)
 - New features follow the layer rule (app → server → domain → db) and actions return `ActionResult`

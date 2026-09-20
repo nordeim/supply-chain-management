@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Instructions for AI coding agents working in this repository. Every line answers: "would you get this wrong without being told?" Verified against the toolchain on 2026-09-20.
+Instructions for AI coding agents working in this repository. Every line answers: "would you get this wrong without being told?" Verified against the toolchain on 2026-09-20 (v1.2: session guard, coverage gate, hosted CI).
 
 ## Commands
 
@@ -15,24 +15,26 @@ Run from the repo root. Bun is the runtime and package manager (never `npm`/`yar
 | `bun run db:push` | Push `prisma/schema.prisma` to SQLite (destructive-tolerant) |
 | `bun run db:seed` | Idempotent seed (natural-key upserts). Demo user creds via `SEED_DEMO_EMAIL`/`SEED_DEMO_PASSWORD` env, safe defaults otherwise |
 | `bun run verify:analytics` | Checks the seeded ledger reproduces the reference KPIs (velocity 1.5/1.2/0.8/0.7/0.4/0.0, low-stock −1, 11 suggestions, inventory value **$202,610 cost basis**, movers badges +2/−1/0/+1/+2) |
-| `bun run test` | Vitest unit suite — 52 domain tests (`src/domain/*.test.ts`), no DB required |
+| `bun run test` | Vitest unit suite — 85 tests (`src/domain/*.test.ts` + `src/lib/env.test.ts`), no DB required |
 | `bun run test:watch` | Same suite in watch mode |
+| `bun run test:coverage` | Same suite with v8 coverage + thresholds (95/85/95/95 over `src/domain/**` + `src/lib/env.ts`) |
 | `bun run test:e2e` | Playwright E2E — 31 chromium tests in `e2e/` against `next start` on :3002 (needs `bun run build` first; override with `E2E_PORT`/`E2E_BASE_URL`). Webkit project is configured but needs system libs |
 | `bun run build` | Production build (standalone output) |
 | `bun run start` | Serve the standalone production build on :3000 |
 
-Order for a clean check: `bun run lint && bun run typecheck && bun run test` (no DB needed). With a database: `db:push → db:seed → verify:analytics` before feature work so the demo state is present. Before shipping UI changes: `bun run build && bun run test:e2e`. Re-running `db:seed` resets the 15 seeded purchase orders but never deletes ledger movements or user-created rows.
+Order for a clean check: `bun run lint && bun run typecheck && bun run test` (no DB needed). CI (`.github/workflows/ci.yml`) runs the same gate plus coverage, seed, analytics, build, and chromium E2E on every push/PR to main. With a database: `db:push → db:seed → verify:analytics` before feature work so the demo state is present. Before shipping UI changes: `bun run build && bun run test:e2e`. Re-running `db:seed` resets the 15 seeded purchase orders but never deletes ledger movements or user-created rows.
 
 ## Architecture invariants
 
 - **Single-app App Router.** All routes live under `src/app/`. There is no monorepo, no `apps/` workspace. The reference design (scandihaven-style monorepo) was deliberately collapsed into one deployable.
 - **Layer direction is enforced:** `src/app/*` (pages/components) → `src/server/*` (queries + actions) → `src/domain/*` (pure logic) → `src/lib/db.ts` (Prisma). The domain layer imports NOTHING from app/server/lib — it is pure and unit-testable without a database.
-- **Mutations go through Server Actions only** (`src/server/actions.ts`). There are no REST endpoints for UI mutations; the only route handlers are `/api/health` and `/api/suppliers` (dialog data). Every action returns `ActionResult<T>` (`src/domain/result.ts`) — never throw across the action boundary.
+- **Mutations go through Server Actions only** (`src/server/actions.ts`). There are no REST endpoints for UI mutations; the only route handlers are `/api/health` and `/api/suppliers` (dialog data). Every action returns `ActionResult<T>` (`src/domain/result.ts`) — never throw across the action boundary. Failure codes include `UNAUTHENTICATED` (see the session guard below).
 - **Money is integer minor units (cents), always.** `src/domain/money.ts` is the only formatting/parsing seam. Floats never touch money; `priceMinor < costMinor` is rejected at the action layer.
 - **Velocity, forecasts, and KPIs are DERIVED, never stored.** The movement ledger (`StockMovement`) is the source of truth; `src/domain/replenishment.ts` computes everything from it. Do not add denormalized analytics columns to `Product` — regenerate from the ledger instead.
 - **Analytics rule:** velocity = sales in the window `min(150, days since first sale)` / that window. The capped-since-first-sale rule is what reproduces the reference velocities (225 sales/150d = 1.5, 110/137 = 0.8) — do not "simplify" it to a bare 150-day average.
 - **AI suggestion reasoning: reference-parity split.** The reference app renders ONE static sentence for every suggestion on its list — the clone reproduces that with `REFERENCE_AI_REASONING` (exported from `src/domain/replenishment.ts`) on the AI Suggestions surface. `buildAiReasoning()` (four truth branches, composed from real numbers) remains the engine for programmatically generated suggestions. Do not hardcode reasoning strings outside these two seams.
 - **The reference UI is read-only.** AI Suggestions rows and the Procurement Order Details panel expose NO mutation buttons — keep it that way. The stock feed's Order/Review buttons deep-link to `/products/:id`. Mutations exist only in the server action layer (kept for programmatic use and unit-tested) plus the UI surfaces the reference actually has: New Product dialog and sign-in/up/out.
+- **Admin actions require a session (ADR-008).** `approveSuggestionAction`, `dismissSuggestionAction`, `updateOrderStatusAction`, and `generateSuggestionsAction` refuse anonymous callers via `requireSignedIn()` (`src/domain/guard.ts`) with an `UNAUTHENTICATED` result. The reference-parity open surfaces (reads, `createProductAction`, auth) must stay open — the live reference serves the New Product form to anonymous visitors.
 
 ## Framework quirks (verified the hard way)
 
@@ -58,7 +60,7 @@ Order for a clean check: `bun run lint && bun run typecheck && bun run test` (no
 
 ## Environment
 
-`.env.example` documents every variable. Only `DATABASE_URL` is required; `SESSION_SECRET` must be a strong random value in production (boot validation refuses the placeholder); seed credentials default to `demo@supplychain.local` / `demo-password`. Env parsing lives in `src/lib/env.ts` — add new variables there (fail-fast with actionable messages), never read `process.env` ad hoc in components.
+`.env.example` documents every variable. Only `DATABASE_URL` is required; `SESSION_SECRET` must be a strong random value in production — session HMAC signing reads it through the memoized `getServerEnv()` seam (`src/lib/env.ts`), so a production process with the missing/placeholder secret fails on first session use; seed credentials default to `demo@supplychain.local` / `demo-password`. Add new variables in `src/lib/env.ts` (fail-fast with actionable messages), never read `process.env` ad hoc in components.
 
 ## Reference
 

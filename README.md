@@ -10,6 +10,7 @@
 
 [![Vitest](https://img.shields.io/badge/Vitest-5-6E9F18?logo=vitest)](https://vitest.dev/)
 [![Playwright](https://img.shields.io/badge/Playwright-1.63-2EAD33?logo=playwright)](https://playwright.dev/)
+[![CI](https://github.com/nordeim/supply-chain-management/actions/workflows/ci.yml/badge.svg)](https://github.com/nordeim/supply-chain-management/actions/workflows/ci.yml)
 
 An inventory-intelligence control room: live stock levels, AI replenishment suggestions, procurement lifecycle, supplier scorecards, and market trend signals — in one polished dashboard. Built as a faithful clone of the reference app, with its design tokens, geometry, data, and read-only interaction model reproduced exactly.
 
@@ -47,7 +48,7 @@ The AI Suggestions engine watches each SKU's stock position against its reorder 
 | ORM | Prisma | 6 | Schema, migrations, typed client |
 | Database | SQLite (file) | 3 | Zero-config local persistence (PostgreSQL-ready schema) |
 | Validation | Zod | 4 | Action input validation |
-| Unit tests | Vitest | 5 | Domain-layer regression (52 tests, TDD) |
+| Unit tests | Vitest | 5 | Domain-layer regression (85 tests, TDD, coverage-gated) |
 | E2E tests | Playwright | 1.63 | Golden-path browser suite against the production build (31 chromium tests) |
 | Runtime | Bun | ≥1.1 | Install, run, scripts |
 
@@ -167,7 +168,8 @@ Requires **Bun ≥ 1.1** (or Node ≥ 20 with `npm` substitutions) and any moder
 
 ```bash
 bun run lint && bun run typecheck   # both exit 0
-bun run test                        # 52 domain unit tests pass
+bun run test                        # 85 domain/env unit tests pass
+bun run test:coverage               # same suite + coverage thresholds (95/85/95/95)
 bun run verify:analytics            # reference KPI checks pass
 curl http://localhost:3000/api/health
 # {"status":"ok","database":"up",...}
@@ -191,7 +193,7 @@ curl http://localhost:3000/api/health
 | Check | Command | Notes |
 |-------|---------|-------|
 | Static gates | `bun run lint && bun run typecheck` | No DB required |
-| Unit (TDD) | `bun run test` | 52 Vitest tests in `src/domain/*.test.ts` — money formatting, ActionResult, velocity windows, reorder math, 30-day deltas, gauge/scale helpers, reference reasoning sentence |
+| Unit (TDD) | `bun run test` | 85 Vitest tests in `src/domain/*.test.ts` + `src/lib/env.test.ts` — money formatting, ActionResult, session guard, env contract, velocity windows, reorder math, 30-day deltas, forecast/ledger replay, gauge/scale helpers, reference reasoning sentence |
 | KPI parity | `bun run verify:analytics` | Asserts the seeded ledger reproduces reference values: velocities 1.5/1.2/0.8/0.7/0.4/0.0, low-stock −1, 11 suggestions, inventory value $202,610 (cost basis), movers badges +2/−1/0/+1/+2 |
 | E2E | `bun run build && bun run test:e2e` | 31 Playwright chromium tests in `e2e/` against `next start` (not dev): every page, sign-in/out, search, filters, Order Details panel, supplier detail, reference row/data assertions. Webkit is configured but needs its system libs — run `npx playwright test --project=chromium` where they're unavailable |
 
@@ -232,8 +234,9 @@ Before going public: set a strong `SESSION_SECRET`, back or migrate the SQLite f
 | All pages + interactions | ✅ Complete | 8 routes incl. supplier detail, all reference components |
 | Mutations & auth | ✅ Complete | Server actions, status machine, scrypt auth, session cookies |
 | Documentation set | ✅ Complete | README, AGENTS, CLAUDE, Project_Architecture_Document, .env.example |
-| Test suites | ✅ Complete | Vitest (52 unit, TDD), Playwright (31 chromium E2E), analytics verifier |
+| Test suites | ✅ Complete | Vitest (85 unit, TDD, coverage thresholds), Playwright (31 chromium E2E), analytics verifier, GitHub Actions CI |
 | Session 2 parity remediation | ✅ Complete | Reference tokens (#FF9000/#EFEFEF/32px), asymmetric KPI grid, dot-plot chart, image stock feed, reference data ($202,610), informational PO panel, supplier detail routes |
+| Hardening (session 4, PAD v1.2) | ✅ Complete | Session guard on admin actions (ADR-008), wired env contract (production refuses insecure SESSION_SECRET), coverage thresholds (95/85/95/95), GitHub Actions CI |
 | Verified E2E | ✅ Complete | Browser-verified flows, screenshots in `docs/screenshots/` |
 
 ## Troubleshooting
@@ -244,6 +247,7 @@ Before going public: set a strong `SESSION_SECRET`, back or migrate the SQLite f
 | Prisma "database not found" | Relative `file:` URLs resolve against `prisma/schema.prisma` — keep `file:../db/custom.db` |
 | KPIs look wrong after editing the seed | Run `bun run db:seed && bun run verify:analytics`; the ledger builder throws a precise error on impossible specs |
 | Login fails with the demo account | The seed only (re)creates the account it knows — re-run with `SEED_DEMO_EMAIL`/`SEED_DEMO_PASSWORD` set |
+| Production sign-in fails with `SESSION_SECRET must be set...` | The env contract is now enforced at session-signing time — set a real secret (`openssl rand -base64 32`) in `.env` for production boots |
 | Playwright: webkit tests fail to launch | Webkit needs OS system libraries; run `npx playwright test --project=chromium` or `npx playwright install-deps webkit` on a host with root |
 | E2E port 3002 already in use | Set `E2E_PORT`/`E2E_BASE_URL` (see Environment Variables) |
 | Dashboard 500 after switching dev↔build | Stale Turbopack cache — `rm -rf .next` and restart the dev server |

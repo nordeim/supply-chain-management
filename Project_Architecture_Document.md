@@ -1,4 +1,4 @@
-# Supply Chain Management — Master Project Architecture Document (PAD) v1.1
+# Supply Chain Management — Master Project Architecture Document (PAD) v1.2
 
 **Classification:** Internal Engineering Reference
 **Status:** DEFINITIVE, PRODUCTION-LOCKED BLUEPRINT
@@ -9,7 +9,15 @@
 
 ---
 
-#### Revision Block — v1.1 (Tracked Changes)
+#### Revision Block — v1.2 (Tracked Changes)
+
+- `[SEC]` **Session guard on admin actions (ADR-008):** the four lifecycle actions with no UI surface (`approveSuggestionAction`, `dismissSuggestionAction`, `updateOrderStatusAction`, `generateSuggestionsAction`) now refuse anonymous callers with `ActionResult` code `UNAUTHENTICATED` via the pure `requireSignedIn()` guard (`src/domain/guard.ts`). Reference-parity surfaces (public reads, New Product dialog, sign-in/up/out) intentionally stay open — the live reference serves the New Product form to anonymous visitors.
+- `[SEC]` **Env contract wired:** `parseServerEnv()` was previously exported but never invoked (docs promised fail-fast validation; code never called it). Session HMAC signing now reads its secret through the memoized `getServerEnv()` seam (`src/lib/env.ts`), so a production boot with a missing/placeholder `SESSION_SECRET` fails on first session use — the documented contract is finally enforced. Dev keeps the safe default.
+- `[TST]` **Coverage threshold gate:** `@vitest/coverage-v8` + `test:coverage` script; thresholds (statements 95 / branches 85 / functions 95 / lines 95) over the pure domain layer + env contract, measured at 97.9/90.9/100/100. Suite grew 52 → 85 tests (pinning tests for `velocityDelta`, `projectedStockAtLeadTime`, `needsReplenishment`, `forecastDemand`, `analyzeProduct`, `buildLedgerDaySeries`, `formatMoney`, `toActionResult` non-Error branch, and the new guard/env seams).
+- `[CIC]` **Hosted CI:** `.github/workflows/ci.yml` runs the full gate (lint → typecheck → unit+coverage → db push/seed → verify:analytics → build → Playwright chromium) on every push/PR to main, plus an exploratory non-blocking webkit job.
+- `[TYP]` `ActionResult` failure branch extracted to `ActionFailure` with new code `UNAUTHENTICATED` — denials are now assignable to any `ActionResult<T>` return type (guard returns `ActionFailure | null`).
+
+#### Revision Block — v1.1 (Historical)
 
 - `[SYN]` Initial blueprint: single-app Next.js 16 clone of the reference Base44 supply-chain application, adapted from the scandihaven foundation conventions (ActionResult boundaries, integer minor-unit money, derived analytics, strict TypeScript, provider-style pure seams) onto a Prisma/SQLite single deployable.
 - `[CA]` Velocity rule locked to `min(150, days-since-first-sale)` windowing after it reproduced the reference app's exact derived numbers (225 sales/150d = 1.5; 110 sales/137d = 0.8) where a bare 150-day average did not.
@@ -126,6 +134,14 @@ How to use this document:
 - **Rationale:** ~90 lines of vetted `node:crypto` primitives instead of an auth framework; mirrors the foundation's signed-cookie pattern; no callbacks/redirect tables to configure.
 - **Consequences:** No OAuth/social login, no email verification flows — out of scope for the clone. If those land later, Better-Auth/NextAuth can replace the session seam without touching pages (only `getSessionUser` callers).
 - **Alternatives Rejected:** NextAuth v4 (heavy for a single local account model); storing plaintext or unsalted hashes (non-negotiable security failure).
+
+**ADR-008: Session guard on the admin action layer (v1.2)**
+
+- **Context:** After the reference-parity remediation the UI exposes no lifecycle controls (the reference app has none), leaving `approveSuggestion`/`dismissSuggestion`/`updateOrderStatus`/`generateSuggestions` as programmatic admin paths that any anonymous caller could invoke. The reference app, however, serves its public surfaces (reads and the New Product dialog) to anonymous visitors.
+- **Decision:** Those four actions require a signed-in session, enforced by the pure `requireSignedIn()` guard (`src/domain/guard.ts`) returning an `UNAUTHENTICATED` `ActionFailure`. Reference-parity surfaces — public reads, `createProductAction`, sign-in/up/out — stay open exactly like the reference.
+- **Rationale:** Closes the §10 "mutations do not require a session" finding with zero parity cost: the guarded actions have no UI callers, no E2E coverage, and no reference counterparts. The guard itself is a pure domain function, so the rule is pinned by unit tests rather than by action-layer integration tests.
+- **Consequences:** Programmatic automation must sign in before driving the lifecycle; the failure shape is a normal `ActionResult` (UI-renderable message, no throw). A future admin UI inherits the guard for free.
+- **Alternatives Rejected:** Guarding every action including `createProductAction` (breaks reference parity — the reference shows the New Product form to anonymous users); Next.js middleware auth (page-level, not action-level, and would gate public reads).
 
 ---
 
@@ -494,8 +510,8 @@ Subtle transitions only: dot-plot entry animation, accordion chevron rotation, d
 | Sessions tamper-proof and expiring | HMAC-SHA256 over `userId.expiry`; `timingSafeEqual`; 30-day TTL; `httpOnly`, `sameSite=lax`, `secure` in production |
 | No SQL injection surface | Prisma parameterized queries only; no raw string concatenation |
 | Auth failures are vague by design | Sign-in returns the same "Invalid email or password" whether the email or the password failed |
-| Boot-time secret enforcement | `parseServerEnv()` refuses the placeholder `SESSION_SECRET` when `NODE_ENV=production` |
-| No privilege escalation via URLs | All routes public-read (reference behavior); mutations require no auth but write operator-attributed logs (`[action] ... by: session?.email ?? 'anonymous'`) |
+| Runtime secret enforcement | `getServerEnv()` (memoized `parseServerEnv()`) feeds session HMAC signing — a production process with a missing/placeholder `SESSION_SECRET` fails on first session use |
+| No privilege escalation via URLs | All routes public-read (reference behavior); admin lifecycle actions require a session (ADR-008, `UNAUTHENTICATED` denial); New Product + auth stay open like the reference; mutations write operator-attributed logs |
 | DOM injection | React escaping everywhere; no `dangerouslySetInnerHTML` in the codebase |
 
 ### 6.2 Security Utilities
@@ -512,7 +528,7 @@ Model: single-role local accounts. Sign-up is open (mirrors the reference's acco
 |--------|-----------|
 | Cookie forgery | HMAC signature + timing-safe compare; secret required in prod |
 | Password DB leak | scrypt with 16-byte salt and 64-byte output; no plaintext anywhere |
-| Action abuse (no-auth mutations) | Acceptable for the demo posture (matches reference); mutations are idempotent-guarded (status matrix), logged with session attribution; tighten by adding a session check inside actions if the deployment goes multi-tenant |
+| Action abuse | Admin lifecycle actions require a session (ADR-008); the remaining open mutations (New Product, auth) mirror the reference demo posture, are zod-validated, idempotent-guarded and logged with session attribution |
 | XSS | React auto-escaping; no raw HTML; external URLs only in `mailto:` links and image fields |
 | Data exfiltration via filters | Search/category/status params are parameterized Prisma queries with whitelisted select values |
 
@@ -526,7 +542,7 @@ Model: single-role local accounts. Sign-up is open (mirrors the reference's acco
 |----------|-------|----------|-----------|
 | Static gate — lint | 0 errors | repo-wide | ESLint 9 (flat, next config) |
 | Static gate — types | 0 errors | `src/`, `prisma/`, `scripts/`, `e2e/` | `tsc --noEmit` (strict) |
-| Unit — domain | 52 tests | `src/domain/*.test.ts` (colocated) | Vitest 5 (node env, `@` alias) |
+| Unit — domain + env contract | 85 tests | `src/domain/*.test.ts`, `src/lib/env.test.ts` (colocated) | Vitest 5 (node env, `@` alias, v8 coverage) |
 | Analytics regression | ~25 assertions | `scripts/verify-analytics.ts` | Bun + Prisma (DB-backed) |
 | Seed invariants | runtime guards | `prisma/seed.ts` | self-balancing ledger builder throws |
 | E2E — browser | 31 tests (chromium) | `e2e/*.spec.ts` (7 files) | Playwright 1.63 vs `next start` :3002 |
@@ -540,13 +556,13 @@ Model: single-role local accounts. Sign-up is open (mirrors the reference's acco
 
 ### 7.3 Coverage Thresholds
 
-No numeric coverage gate is configured (no hosted CI yet — see §10); the mandatory pre-push gate is: `bun run lint && bun run typecheck && bun run test && bun run verify:analytics` all green, plus `bun run build && bun run test:e2e` for UI changes.
+`bun run test:coverage` runs the unit suite with v8 coverage over the pure layer (`src/domain/**` + `src/lib/env.ts`) and enforces thresholds: **statements 95 / branches 85 / functions 95 / lines 95** (measured 97.9/90.9/100/100 when introduced). Files needing the Next runtime (db client, session cookies) are intentionally excluded — they are covered by the E2E suite instead. The mandatory pre-push gate is unchanged: `bun run lint && bun run typecheck && bun run test && bun run verify:analytics` all green, plus `bun run build && bun run test:e2e` for UI changes.
 
 ### 7.4 Pre-PR / Pre-Deploy Checklist
 
 - [ ] `bun run lint` exits 0
 - [ ] `bun run typecheck` exits 0
-- [ ] `bun run test` — 52 unit tests pass
+- [ ] `bun run test` — 85 unit tests pass (or `test:coverage` to also enforce thresholds)
 - [ ] `bun run verify:analytics` passes (incl. $202,610 + badges)
 - [ ] `bun run build && bun run test:e2e` — 31 chromium tests pass
 - [ ] Dev server renders all 8 routes without console errors
@@ -582,7 +598,12 @@ None shipped (deliberate: zero-service local story). The standalone build is Doc
 
 ### 8.4 CI/CD Pipeline
 
-No hosted CI yet (repo has no workflows). The local gate is the gate: lint → typecheck → verify:analytics → build. Readiness probe for any future pipeline or load balancer: `GET /api/health` → `{"status":"ok","database":"up"}`.
+`.github/workflows/ci.yml` runs on every push/PR to `main`:
+
+- **quality-gate job (required):** bun install (frozen lockfile) → `prisma generate` → lint → typecheck → unit tests with coverage thresholds → `db:push` + `db:seed` → `verify:analytics` → production build → Playwright **chromium** E2E (report uploaded on failure).
+- **e2e-webkit job (exploratory, `continue-on-error`):** the same setup with the webkit browser; non-blocking because webkit specs have never been validated in a controlled environment. Promote it to a required gate once reliably green.
+
+CI sets a dedicated `SESSION_SECRET` (CI-only value, not a deployment secret) so the production-mode boot validation passes. Readiness probe for any future pipeline extension or load balancer: `GET /api/health` → `{"status":"ok","database":"up"}`.
 
 ---
 
@@ -605,7 +626,7 @@ Full setup (with verification) in `README.md` §Quick Start.
 |---------|----------|---------|
 | `bun run dev` | repo root | Dev server (Turbopack) with `dev.log` |
 | `bun run lint` / `typecheck` | repo root | Static gates |
-| `bun run test` / `test:watch` | repo root | Vitest unit suite (52 domain tests) / watch mode |
+| `bun run test` / `test:watch` / `test:coverage` | repo root | Vitest unit suite (85 tests) / watch mode / with v8 coverage thresholds |
 | `bun run test:e2e` | repo root | Playwright E2E (31 chromium tests; build first) |
 | `bun run db:push` / `db:seed` | repo root | Schema push / idempotent demo data |
 | `bun run verify:analytics` | repo root | KPI regression check |
@@ -631,10 +652,10 @@ Full setup (with verification) in `README.md` §Quick Start.
 
 | Priority | Issue | Impact | Status |
 |----------|-------|--------|--------|
-| Medium | Mutations do not require a session (reference-parity choice) | Anonymous visitors can invoke the remaining action layer in a public deployment | Open — add session check in actions before multi-tenant exposure |
+| — | ~~Mutations do not require a session~~ | — | **Resolved in v1.2** — admin lifecycle actions refuse anonymous callers (`UNAUTHENTICATED`, ADR-008); reference-parity surfaces (New Product, auth) intentionally stay open |
 | Low | Webkit E2E project needs OS system libraries | Webkit specs can't run on minimal hosts/sandboxes | Mitigated — chromium is the default gate (`--project=chromium`); `npx playwright install-deps webkit` where root is available |
-| Low | No numeric test-coverage gate | Coverage surface measured by suite size, not percentage | Partially addressed — 52 unit + 31 E2E tests landed; a `vitest --coverage` threshold remains open |
-| Low | No hosted CI | Local gate is the only gate | Open — add GitHub Actions running the §7.4 checklist (including webkit) |
+| — | ~~No numeric test-coverage gate~~ | — | **Resolved in v1.2** — `test:coverage` enforces 95/85/95/95 over the pure layer (measured 97.9/90.9/100/100) |
+| — | ~~No hosted CI~~ | — | **Resolved in v1.2** — GitHub Actions runs the full gate on push/PR to main (chromium blocking; webkit exploratory/non-blocking) |
 | — | ~~Inventory value basis mismatch ($135,360 vs reference $202,610)~~ | — | **Resolved in v1.1** — seed now carries reference costs; value derives to $202,610 exactly |
 | — | ~~Velocity-delta badges differ from reference semantics~~ | — | **Resolved in v1.1** — `salesDelta30d` (day-bucketed 30d-vs-prior-30d) reproduces +2/−1/0/+1/+2 and is pinned by unit + analytics tests |
 
