@@ -18,7 +18,8 @@ Run from the repo root. Bun is the runtime and package manager (never `npm`/`yar
 | `bun run test` | Vitest unit suite — 85 tests (`src/domain/*.test.ts` + `src/lib/env.test.ts`), no DB required |
 | `bun run test:watch` | Same suite in watch mode |
 | `bun run test:coverage` | Same suite with v8 coverage + thresholds (95/85/95/95 over `src/domain/**` + `src/lib/env.ts`) |
-| `bun run test:e2e` | Playwright E2E — 31 chromium tests in `e2e/` against `next start` on :3002 (needs `bun run build` first; override with `E2E_PORT`/`E2E_BASE_URL`). Webkit project is configured but needs system libs |
+| `bun run test:e2e` | Playwright E2E — 31 tests in `e2e/` against `next start` on :3002 (needs `bun run build` first; override with `E2E_PORT`/`E2E_BASE_URL`). Webkit runs the same specs green on hosted CI; locally it needs system libs (`--project=chromium` where unavailable) |
+| `bun run e2e:summary` | Render `test-results/junit.xml` (written by every E2E run) as a totals + failure report; on CI it also publishes failures as public run-page annotations |
 | `bun run build` | Production build (standalone output) |
 | `bun run start` | Serve the standalone production build on :3000 |
 
@@ -52,7 +53,7 @@ Order for a clean check: `bun run lint && bun run typecheck && bun run test` (no
 
 - **ActionResult union, not exceptions:** UI renders `result.message` verbatim on failure; operator detail goes to `console.error`/`console.info` server-side only (`[action]` prefix).
 - **Status transitions are a matrix, not a free string:** `allowedStatusTransitions` in `actions.ts`. Suggested → Approved/Cancelled; Approved → Delivered/Cancelled; Delivered/Cancelled are terminal. `Delivered` performs stock increment + ledger `restock` entry in the same action. (Note: no UI surface invokes these post-parity — they are programmatic/admin paths.)
-- **Sessions:** HMAC-signed cookie (`scm_session`), value `userId.expiry.hmac(secret)`. Password hashes are `scrypt:salt:hex`. No auth library — verify the shape in `src/lib/session.ts` before adding auth features.
+- **Sessions:** HMAC-signed cookie (`scm_session`), value `userId.expiry.hmac(secret)`. Password hashes are `scrypt:salt:hex`. No auth library — verify the shape in `src/lib/session.ts` before adding auth features. The cookie's `Secure` flag follows the request protocol (`x-forwarded-proto`), NOT `NODE_ENV` — WebKit/Safari drops `Secure` cookies on plain-HTTP transports (even loopback) while Chromium trusts loopback, so `NODE_ENV`-based flags create browser-divergent auth bugs.
 - **Order numbers are hex counters:** `nextOrderNumber()` parses the current max (e.g. `2AF142`) as hex and increments — keep the `2AF` prefix scheme.
 - **Seed idempotency contract:** upsert by natural keys (`sku`, supplier `name`, `orderNumber`, `category`, user `email`). Ledger movements are created only when a product has none. The ledger builder (`buildLedger`) self-balances and THROWS on impossible specs — if you change seeded stock/sales numbers, run `bun run db:seed` and read the error, don't guess.
 - **All routes are public-readable (like the reference app); sign-in only personalizes the header.** Do not add auth gates to pages without coordinating — the demo flow depends on anonymous access.

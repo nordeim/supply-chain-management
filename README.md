@@ -49,7 +49,7 @@ The AI Suggestions engine watches each SKU's stock position against its reorder 
 | Database | SQLite (file) | 3 | Zero-config local persistence (PostgreSQL-ready schema) |
 | Validation | Zod | 4 | Action input validation |
 | Unit tests | Vitest | 5 | Domain-layer regression (85 tests, TDD, coverage-gated) |
-| E2E tests | Playwright | 1.63 | Golden-path browser suite against the production build (31 chromium tests) |
+| E2E tests | Playwright | 1.63 | Golden-path browser suite against the production build (31 tests; chromium + webkit green on CI) |
 | Runtime | Bun | ≥1.1 | Install, run, scripts |
 
 ```mermaid
@@ -195,7 +195,8 @@ curl http://localhost:3000/api/health
 | Static gates | `bun run lint && bun run typecheck` | No DB required |
 | Unit (TDD) | `bun run test` | 85 Vitest tests in `src/domain/*.test.ts` + `src/lib/env.test.ts` — money formatting, ActionResult, session guard, env contract, velocity windows, reorder math, 30-day deltas, forecast/ledger replay, gauge/scale helpers, reference reasoning sentence |
 | KPI parity | `bun run verify:analytics` | Asserts the seeded ledger reproduces reference values: velocities 1.5/1.2/0.8/0.7/0.4/0.0, low-stock −1, 11 suggestions, inventory value $202,610 (cost basis), movers badges +2/−1/0/+1/+2 |
-| E2E | `bun run build && bun run test:e2e` | 31 Playwright chromium tests in `e2e/` against `next start` (not dev): every page, sign-in/out, search, filters, Order Details panel, supplier detail, reference row/data assertions. Webkit is configured but needs its system libs — run `npx playwright test --project=chromium` where they're unavailable |
+| E2E | `bun run build && bun run test:e2e` | 31 Playwright tests in `e2e/` against `next start` (not dev): every page, sign-in/out, search, filters, Order Details panel, supplier detail, reference row/data assertions. CI runs the suite on both chromium (blocking) and webkit (green since run #5). Locally webkit needs its system libs — run `npx playwright test --project=chromium` where they're unavailable. `bun run e2e:summary` renders the JUnit results as a totals/failure report (CI also publishes them as public run annotations) |
+| CI results | run page annotations | E2E failures appear as public annotations on the GitHub Actions run page (no login needed) — test name, file:line, and the first lines of each failure |
 
 ## Design System
 
@@ -237,6 +238,7 @@ Before going public: set a strong `SESSION_SECRET`, back or migrate the SQLite f
 | Test suites | ✅ Complete | Vitest (85 unit, TDD, coverage thresholds), Playwright (31 chromium E2E), analytics verifier, GitHub Actions CI |
 | Session 2 parity remediation | ✅ Complete | Reference tokens (#FF9000/#EFEFEF/32px), asymmetric KPI grid, dot-plot chart, image stock feed, reference data ($202,610), informational PO panel, supplier detail routes |
 | Hardening (session 4, PAD v1.2) | ✅ Complete | Session guard on admin actions (ADR-008), wired env contract (production refuses insecure SESSION_SECRET), coverage thresholds (95/85/95/95), GitHub Actions CI |
+| WebKit diagnosis & green (session 5, PAD v1.3) | ✅ Complete | Public E2E failure annotations (JUnit → run-page `::error` commands), request-protocol `Secure` cookie flag (fixes WebKit dropping the session cookie on plain-HTTP), node24 CI actions, webkit E2E green on hosted CI (31/31) |
 | Verified E2E | ✅ Complete | Browser-verified flows, screenshots in `docs/screenshots/` |
 
 ## Troubleshooting
@@ -248,7 +250,8 @@ Before going public: set a strong `SESSION_SECRET`, back or migrate the SQLite f
 | KPIs look wrong after editing the seed | Run `bun run db:seed && bun run verify:analytics`; the ledger builder throws a precise error on impossible specs |
 | Login fails with the demo account | The seed only (re)creates the account it knows — re-run with `SEED_DEMO_EMAIL`/`SEED_DEMO_PASSWORD` set |
 | Production sign-in fails with `SESSION_SECRET must be set...` | The env contract is now enforced at session-signing time — set a real secret (`openssl rand -base64 32`) in `.env` for production boots |
-| Playwright: webkit tests fail to launch | Webkit needs OS system libraries; run `npx playwright test --project=chromium` or `npx playwright install-deps webkit` on a host with root |
+| Playwright: webkit tests fail to launch locally | Webkit needs OS system libraries; locally run `npx playwright test --project=chromium` (hosted CI runs webkit green) or `npx playwright install-deps webkit` on a host with root |
+| Sign-in works on Chromium but not Safari/WebKit | The session cookie is only marked `Secure` when the request actually arrived over TLS (`x-forwarded-proto`); WebKit drops `Secure` cookies on plain-HTTP transports, so serve the app through TLS or verify you're not forcing the flag |
 | E2E port 3002 already in use | Set `E2E_PORT`/`E2E_BASE_URL` (see Environment Variables) |
 | Dashboard 500 after switching dev↔build | Stale Turbopack cache — `rm -rf .next` and restart the dev server |
 

@@ -1,13 +1,21 @@
-# Supply Chain Management — Master Project Architecture Document (PAD) v1.2
+# Supply Chain Management — Master Project Architecture Document (PAD) v1.3
 
 **Classification:** Internal Engineering Reference
 **Status:** DEFINITIVE, PRODUCTION-LOCKED BLUEPRINT
 **Companion Documents:** `README.md` (operator guide) · `AGENTS.md` (agent cheat-sheet) · `CLAUDE.md` (agent operating contract)
-**Last Updated:** 2026-09-20 (Session 2 parity remediation)
+**Last Updated:** 2026-09-20 (Session 5 — webkit E2E diagnosis & green)
 **Audience:** Senior Engineers, Tech Leads, DevOps, and Onboarding Engineers
 **Rule:** Every architectural decision in this document traces to a specific rationale. Nothing is here "because it's popular."
 
 ---
+
+#### Revision Block — v1.3 (Tracked Changes)
+
+- `[SEC]` **Session cookie `Secure` flag now follows the request protocol, not `NODE_ENV`** (`src/lib/session.ts`): `secure: await isHttpsRequest()` — true only when the request arrived over TLS (`x-forwarded-proto`, first proxy-chain entry), false for direct plain-HTTP. Root cause of the hosted-CI webkit failure: production-mode E2E serves plain HTTP, and WebKit drops `Secure` cookies on non-HTTPS transports (even loopback) while Chromium trusts loopback — the sign-in round-trip was the only failing test (30/31 webkit passed, pinned via the new public annotation pipeline). Marking a cookie `Secure` on a plain-HTTP transport is a bug (browsers drop it), not a hardening — the fix is strictly more correct for TLS-terminated deployments too.
+- `[CIC]` **Public E2E failure diagnosability:** Playwright JUnit output (`test-results/junit.xml`) feeds `scripts/e2e-summary.ts` (`bun run e2e:summary`), which appends a totals + per-failure markdown table to `$GITHUB_STEP_SUMMARY` AND emits `::error` workflow commands (≤10 per step, GitHub's cap) that render as **annotations on the public run page** — GitHub's raw logs and job-summary markdown are login-walled, but annotations are anonymous-readable, which is how the webkit failure was diagnosed without repo access. A fallback annotation fires when junit.xml is missing (suite crashed before reporting).
+- `[CIC]` **CI actions on node24 majors:** `actions/checkout@v7`, `actions/upload-artifact@v7` (removes the Node-20 deprecation warnings from runs #1–#3); the webkit report artifact now includes `junit.xml`.
+- `[TST]` **WebKit E2E green on hosted CI (run #5, 31/31):** the exploratory webkit project got a 60s per-test timeout (slower headless WebKit on shared runners; chromium's 30s gate unchanged) and the dashboard spec waits for `domcontentloaded` after `goBack()` (WebKit resolves history back before the bfcache page is interactive). Chromium gate stays the primary blocking job; webkit remains `continue-on-error` pending more green runs — promote by deleting that line once reliably green.
+- `[RES]` **Sandbox-scaffold defense in `.gitignore`:** the automation workspace's harness occasionally auto-commits untracked files (it twice nearly staged `auth.json`, which stores agent-browser credentials); known scaffold paths are now ignored so stray harness commits can't leak them.
 
 #### Revision Block — v1.2 (Tracked Changes)
 
@@ -507,7 +515,7 @@ Subtle transitions only: dot-plot entry animation, accordion chevron rotation, d
 | No secrets in the tree | `.gitignore` rejects `.env`, `*.key`, `db/*.db`; seed credentials come from env, never literals |
 | All action input validated | Zod schemas at the top of every action; `ActionResult('VALIDATION')` on failure |
 | Passwords hashed with scrypt + per-user salt | `hashPassword()` / `verifyPassword()` in `src/lib/session.ts`; timing-safe comparison |
-| Sessions tamper-proof and expiring | HMAC-SHA256 over `userId.expiry`; `timingSafeEqual`; 30-day TTL; `httpOnly`, `sameSite=lax`, `secure` in production |
+| Sessions tamper-proof and expiring | HMAC-SHA256 over `userId.expiry`; `timingSafeEqual`; 30-day TTL; `httpOnly`, `sameSite=lax`, `secure` when the request arrived over TLS (`x-forwarded-proto`) — never `Secure` on plain-HTTP transports, where WebKit/Safari silently drops the cookie |
 | No SQL injection surface | Prisma parameterized queries only; no raw string concatenation |
 | Auth failures are vague by design | Sign-in returns the same "Invalid email or password" whether the email or the password failed |
 | Runtime secret enforcement | `getServerEnv()` (memoized `parseServerEnv()`) feeds session HMAC signing — a production process with a missing/placeholder `SESSION_SECRET` fails on first session use |
@@ -545,14 +553,14 @@ Model: single-role local accounts. Sign-up is open (mirrors the reference's acco
 | Unit — domain + env contract | 85 tests | `src/domain/*.test.ts`, `src/lib/env.test.ts` (colocated) | Vitest 5 (node env, `@` alias, v8 coverage) |
 | Analytics regression | ~25 assertions | `scripts/verify-analytics.ts` | Bun + Prisma (DB-backed) |
 | Seed invariants | runtime guards | `prisma/seed.ts` | self-balancing ledger builder throws |
-| E2E — browser | 31 tests (chromium) | `e2e/*.spec.ts` (7 files) | Playwright 1.63 vs `next start` :3002 |
+| E2E — browser | 31 tests (chromium + webkit, green on hosted CI) | `e2e/*.spec.ts` (7 files) | Playwright 1.63 vs `next start` :3002 |
 
 ### 7.2 Test Patterns
 
 - **TDD unit suite (Vitest):** every domain behavior — velocity windows, reorder-quantity math, low-stock scoring, forecast banding, `salesDelta30d` day-bucketed windows, gauge/tick-scale helpers, money formatting/parsing, ActionResult shape, and the `REFERENCE_AI_REASONING` sentence — is pinned by a colocated `*.test.ts` written Red-first. The domain layer imports nothing, so the suite runs in-process with no DB and finishes in <1s.
 - **Reference-value regression:** `verify-analytics` asserts the seeded ledger reproduces the reference KPIs (velocity 1.5/1.2/0.8/0.7/0.4/0.0; low-stock score −1; 11 suggestions; **inventory value $202,610 cost basis**; movers badges +2/−1/0/+1/+2; series end equals live inventory value) — this pins ADR-003/004 and the data parity against refactor drift.
 - **Invariant-enforcing seed:** the ledger builder validates never-negative stock and exact ending balance before writing — data bugs fail at seed time with precise messages.
-- **Playwright E2E (production artifact):** specs boot `next start` (not dev) on :3002 — mirroring the foundation's audit finding that dev HMR hydration can diverge from prod. Coverage: all 8 routes render with reference data, sign-in/out with the seeded demo account, product search, status filter, Order Details side panel contents + absence of transition buttons (parity), supplier detail navigation, AI reasoning expansion, `/api/health` probe. Webkit is configured as a second project but requires system libraries; where unavailable, run `npx playwright test --project=chromium`.
+- **Playwright E2E (production artifact):** specs boot `next start` (not dev) on :3002 — mirroring the foundation's audit finding that dev HMR hydration can diverge from prod. Coverage: all 8 routes render with reference data, sign-in/out with the seeded demo account, product search, status filter, Order Details side panel contents + absence of transition buttons (parity), supplier detail navigation, AI reasoning expansion, `/api/health` probe. The webkit project runs the same 31 specs; it is green on hosted CI (run #5+) with a 60s per-test timeout, but needs system libraries for local runs — where unavailable, run `npx playwright test --project=chromium`. JUnit output (`test-results/junit.xml`) feeds `bun run e2e:summary` for CI summaries and annotations.
 
 ### 7.3 Coverage Thresholds
 
@@ -565,6 +573,7 @@ Model: single-role local accounts. Sign-up is open (mirrors the reference's acco
 - [ ] `bun run test` — 85 unit tests pass (or `test:coverage` to also enforce thresholds)
 - [ ] `bun run verify:analytics` passes (incl. $202,610 + badges)
 - [ ] `bun run build && bun run test:e2e` — 31 chromium tests pass
+- [ ] CI green on the pushed commit (both jobs — see §8.4)
 - [ ] Dev server renders all 8 routes without console errors
 - [ ] Any schema change followed by `db:push` + `db:seed` + doc updates (AGENTS/PAD §data)
 
@@ -600,8 +609,10 @@ None shipped (deliberate: zero-service local story). The standalone build is Doc
 
 `.github/workflows/ci.yml` runs on every push/PR to `main`:
 
-- **quality-gate job (required):** bun install (frozen lockfile) → `prisma generate` → lint → typecheck → unit tests with coverage thresholds → `db:push` + `db:seed` → `verify:analytics` → production build → Playwright **chromium** E2E (report uploaded on failure).
-- **e2e-webkit job (exploratory, `continue-on-error`):** the same setup with the webkit browser; non-blocking because webkit specs have never been validated in a controlled environment. Promote it to a required gate once reliably green.
+- **quality-gate job (required):** bun install (frozen lockfile) → `prisma generate` → lint → typecheck → unit tests with coverage thresholds → `db:push` + `db:seed` → `verify:analytics` → production build → Playwright **chromium** E2E (report + junit uploaded on failure).
+- **e2e-webkit job (exploratory, `continue-on-error`):** the same setup with the webkit browser — green since run #5 (after the request-protocol cookie fix); kept non-blocking pending more green runs, promote by deleting the `continue-on-error` line. Webkit specs run with a 60s per-test timeout (headless WebKit is slower on shared runners).
+- **Public results reporting (both E2E jobs):** after each E2E step (`if: always()`), `bun run e2e:summary` parses `test-results/junit.xml` into (a) a job-summary markdown table (visible to signed-in maintainers) and (b) `::error` workflow commands that render as **annotations on the public run page** — the one surface anonymous viewers can read, which is how webkit-only failures are diagnosed without log access. Annotations carry the test name, file:line, and the first ~4 lines of each failure; a fallback annotation fires if junit.xml is missing (suite crashed before reporting).
+- **Actions on node24 majors:** `actions/checkout@v7`, `actions/upload-artifact@v7` (no Node-20 deprecation warnings).
 
 CI sets a dedicated `SESSION_SECRET` (CI-only value, not a deployment secret) so the production-mode boot validation passes. Readiness probe for any future pipeline extension or load balancer: `GET /api/health` → `{"status":"ok","database":"up"}`.
 
@@ -652,8 +663,9 @@ Full setup (with verification) in `README.md` §Quick Start.
 
 | Priority | Issue | Impact | Status |
 |----------|-------|--------|--------|
+| — | ~~Session cookie dropped by WebKit on plain-HTTP production-mode E2E~~ | — | **Resolved in v1.3** — the `Secure` flag now follows the request protocol (`x-forwarded-proto`); webkit E2E green on hosted CI since run #5 (31/31) |
+| Low | Webkit E2E needs OS system libraries for local runs | Webkit specs can't run on minimal hosts/sandboxes | Mitigated — chromium is the default local gate (`--project=chromium`); webkit runs on hosted CI (green); `npx playwright install-deps webkit` where root is available |
 | — | ~~Mutations do not require a session~~ | — | **Resolved in v1.2** — admin lifecycle actions refuse anonymous callers (`UNAUTHENTICATED`, ADR-008); reference-parity surfaces (New Product, auth) intentionally stay open |
-| Low | Webkit E2E project needs OS system libraries | Webkit specs can't run on minimal hosts/sandboxes | Mitigated — chromium is the default gate (`--project=chromium`); `npx playwright install-deps webkit` where root is available |
 | — | ~~No numeric test-coverage gate~~ | — | **Resolved in v1.2** — `test:coverage` enforces 95/85/95/95 over the pure layer (measured 97.9/90.9/100/100) |
 | — | ~~No hosted CI~~ | — | **Resolved in v1.2** — GitHub Actions runs the full gate on push/PR to main (chromium blocking; webkit exploratory/non-blocking) |
 | — | ~~Inventory value basis mismatch ($135,360 vs reference $202,610)~~ | — | **Resolved in v1.1** — seed now carries reference costs; value derives to $202,610 exactly |
@@ -678,8 +690,9 @@ Full setup (with verification) in `README.md` §Quick Start.
 | `src/components/app/procurement-table.tsx` | ~130 | PO table rows w/ status filter + panel state |
 | `src/components/app/suggestion-row.tsx` | ~100 | Reference table line + AI Reasoning expand |
 | `e2e/*.spec.ts` | 7 files | 31 chromium E2E tests (all pages, auth, filters, panels) |
-| `src/lib/session.ts` | ~90 | scrypt verify + HMAC cookie sessions |
+| `src/lib/session.ts` | ~110 | scrypt verify + HMAC cookie sessions; `Secure` flag follows request protocol |
 | `scripts/verify-analytics.ts` | ~170 | KPI regression vs reference values |
+| `scripts/e2e-summary.ts` | ~230 | JUnit → CI job summary + public failure annotations |
 
 ---
 

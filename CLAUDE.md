@@ -91,14 +91,14 @@ Optional demo sign-in account (seeded): `demo@supplychain.local` / `demo-passwor
 | `bun run typecheck` | Type checking |
 | `bun run db:push` / `db:seed` / `verify:analytics` | Database schema / demo data / KPI regression check |
 | `bun run test` / `test:watch` / `test:coverage` | Vitest unit suite (85 tests) / watch mode / with coverage thresholds |
-| `bun run test:e2e` | Playwright E2E (31 chromium tests, `next start` on :3002; build first) |
+| `bun run test:e2e` / `e2e:summary` | Playwright E2E (31 tests, `next start` on :3002; build first) / JUnit results → failure report |
 
 ## Testing Strategy
 
 ### Test Pyramid
 - **Unit Tests (Vitest, 85)**: pure domain functions in `src/domain/*.test.ts` plus the env contract in `src/lib/env.test.ts` — velocity windows, low-stock scoring, reorder-quantity math, forecasting, 30-day sales deltas, ledger day-series replay, money formatting/parsing, ActionResult shape, gauge/tick-scale helpers, the session guard, and the reference reasoning sentence. TDD: Red → Green → Refactor; tests are colocated with the modules they cover. `bun run test:coverage` enforces 95/85/95/95 thresholds over the pure layer.
 - **Integration Check**: `scripts/verify-analytics.ts` — asserts the seeded ledger reproduces the reference KPIs (velocity 1.5/1.2/0.8/0.7/0.4/0.0, low-stock score −1, 11 pending suggestions, inventory value $202,610 cost basis, movers badges +2/−1/0/+1/+2, 90-day series integrity)
-- **E2E (Playwright, 31 chromium tests)**: `e2e/*.spec.ts` run against the production build (`next start`, not dev) — every page renders with reference data, sign-in/out with the seeded demo account, product search, status filter, Order Details side panel, supplier detail navigation, AI reasoning expansion, health probe. Webkit project is configured but needs system libraries; run `--project=chromium` where unavailable.
+- **E2E (Playwright, 31 tests)**: `e2e/*.spec.ts` run against the production build (`next start`, not dev) — every page renders with reference data, sign-in/out with the seeded demo account, product search, status filter, Order Details side panel, supplier detail navigation, AI reasoning expansion, health probe. CI runs chromium (blocking) and webkit (green, still `continue-on-error`) with public failure annotations on the run page; locally webkit needs system libraries — run `--project=chromium` where unavailable.
 
 ### Test Commands
 
@@ -193,7 +193,7 @@ scripts/        → verification tooling
 
 You are successful when:
 - `bun run lint`, `bun run typecheck`, `bun run test` (or `test:coverage`), and `bun run verify:analytics` all pass
-- `bun run build && bun run test:e2e` passes (31 chromium tests) after UI changes
+- `bun run build && bun run test:e2e` passes (31 tests) after UI changes, and hosted CI is green on the pushed commit (both chromium and webkit jobs)
 - The dashboard KPIs match the derived ledger state (no stale or denormalized numbers) and the reference values ($202,610 inventory value, 6 SKUs, −1 low stock, 11 pending suggestions)
 - New features follow the layer rule (app → server → domain → db) and actions return `ActionResult`
 - Docs (AGENTS/PAD/README) stay truthful after any change you make
