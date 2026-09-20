@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Instructions for AI coding agents working in this repository. Every line answers: "would you get this wrong without being told?" Verified against the toolchain on 2026-09-20 (v1.2: session guard, coverage gate, hosted CI).
+Instructions for AI coding agents working in this repository. Every line answers: "would you get this wrong without being told?" Verified against the toolchain on 2026-09-20 (v1.5: webkit promoted to blocking CI gate; session guard, coverage gate, hosted CI).
 
 ## Commands
 
@@ -23,7 +23,7 @@ Run from the repo root. Bun is the runtime and package manager (never `npm`/`yar
 | `bun run build` | Production build (standalone output) |
 | `bun run start` | Serve the standalone production build on :3000 |
 
-Order for a clean check: `bun run lint && bun run typecheck && bun run test` (no DB needed). CI (`.github/workflows/ci.yml`) runs the same gate plus coverage, seed, analytics, build, and chromium E2E on every push/PR to main. With a database: `db:push → db:seed → verify:analytics` before feature work so the demo state is present. Before shipping UI changes: `bun run build && bun run test:e2e`. Re-running `db:seed` resets the 15 seeded purchase orders but never deletes ledger movements or user-created rows.
+Order for a clean check: `bun run lint && bun run typecheck && bun run test` (no DB needed). CI (`.github/workflows/ci.yml`) runs the same gate plus coverage, seed, analytics, build, and BOTH E2E projects (chromium + webkit, each blocking since v1.5) on every push/PR to main. With a database: `db:push → db:seed → verify:analytics` before feature work so the demo state is present. Before shipping UI changes: `bun run build && bun run test:e2e`. Re-running `db:seed` resets the 15 seeded purchase orders but never deletes ledger movements or user-created rows.
 
 ## Architecture invariants
 

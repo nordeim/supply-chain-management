@@ -1,13 +1,17 @@
-# Supply Chain Management — Master Project Architecture Document (PAD) v1.4
+# Supply Chain Management — Master Project Architecture Document (PAD) v1.5
 
 **Classification:** Internal Engineering Reference
 **Status:** DEFINITIVE, PRODUCTION-LOCKED BLUEPRINT
 **Companion Documents:** `README.md` (operator guide) · `AGENTS.md` (agent cheat-sheet) · `CLAUDE.md` (agent operating contract)
-**Last Updated:** 2026-09-20 (Session 6 — webkit hydration-race flake diagnosis & fix, runner pin)
+**Last Updated:** 2026-09-20 (Session 8 — webkit promoted from exploratory to blocking CI gate)
 **Audience:** Senior Engineers, Tech Leads, DevOps, and Onboarding Engineers
 **Rule:** Every architectural decision in this document traces to a specific rationale. Nothing is here "because it's popular."
 
 ---
+
+#### Revision Block — v1.5 (Tracked Changes)
+
+- `[CIC]` **WebKit E2E promoted to a blocking CI gate** (`continue-on-error` removed from the `e2e-webkit` job; job renamed `E2E (webkit, exploratory)` → `E2E (webkit)`). Promotion evidence: webkit green on hosted-CI runs #5/#6, one root-caused flake on #7 (fixed two-layer in v1.4 with a deterministic local red/green proof), then **three consecutive post-fix green runs #8/#9/#10** (81s / 1m38s / 1m35s) — the v1.4 remediation holding under real shared-runner conditions. A webkit failure now blocks main exactly like chromium; the public-annotation diagnosability pipeline (v1.3) and the `if: always()` results-summary steps are unchanged, so a future failure is still publicly diagnosable. Local development is unaffected: webkit still needs system libraries locally — `--project=chromium` remains the documented local gate.
 
 #### Revision Block — v1.4 (Tracked Changes)
 
@@ -615,7 +619,7 @@ None shipped (deliberate: zero-service local story). The standalone build is Doc
 `.github/workflows/ci.yml` runs on every push/PR to `main` (runners pinned to `ubuntu-24.04` — see the v1.4 revision block):
 
 - **quality-gate job (required):** bun install (frozen lockfile) → `prisma generate` → lint → typecheck → unit tests with coverage thresholds → `db:push` + `db:seed` → `verify:analytics` → production build → Playwright **chromium** E2E (report + junit uploaded on failure).
-- **e2e-webkit job (exploratory, `continue-on-error`):** the same setup with the webkit browser — green on runs #5/#6/#8 (run #8 = first post-fix validation of the v1.4 flake fix: 31/31 in 81s); run #7's hydration-race flake on a docs-only commit was root-caused and fixed two-layer in v1.4 (`toPass()` retry + `name="q"`); kept non-blocking pending more green runs, promote by deleting the `continue-on-error` line. Webkit specs run with a 60s per-test timeout (headless WebKit is slower on shared runners).
+- **e2e-webkit job (required, promoted in v1.5):** the same setup with the webkit browser — green on runs #5/#6/#8/#9/#10 (run #8 = first post-fix validation of the v1.4 flake fix, 31/31 in 81s; #9/#10 confirmed the streak); run #7's hydration-race flake on a docs-only commit was root-caused and fixed two-layer in v1.4 (`toPass()` retry + `name="q"`). The `continue-on-error` line was deleted in v1.5 after the three-run post-fix streak — webkit failures now block main. Webkit specs run with a 60s per-test timeout (headless WebKit is slower on shared runners).
 - **Public results reporting (both E2E jobs):** after each E2E step (`if: always()`), `bun run e2e:summary` parses `test-results/junit.xml` into (a) a job-summary markdown table (visible to signed-in maintainers) and (b) `::error` workflow commands that render as **annotations on the public run page** — the one surface anonymous viewers can read, which is how webkit-only failures are diagnosed without log access. Annotations carry the test name, file:line, and the first ~4 lines of each failure; a fallback annotation fires if junit.xml is missing (suite crashed before reporting).
 - **Actions on node24 majors:** `actions/checkout@v7`, `actions/upload-artifact@v7` (no Node-20 deprecation warnings).
 
@@ -673,7 +677,7 @@ Full setup (with verification) in `README.md` §Quick Start.
 | Low | Webkit E2E needs OS system libraries for local runs | Webkit specs can't run on minimal hosts/sandboxes | Mitigated — chromium is the default local gate (`--project=chromium`); webkit runs on hosted CI (green); `npx playwright install-deps webkit` where root is available |
 | — | ~~Mutations do not require a session~~ | — | **Resolved in v1.2** — admin lifecycle actions refuse anonymous callers (`UNAUTHENTICATED`, ADR-008); reference-parity surfaces (New Product, auth) intentionally stay open |
 | — | ~~No numeric test-coverage gate~~ | — | **Resolved in v1.2** — `test:coverage` enforces 95/85/95/95 over the pure layer (measured 97.9/90.9/100/100) |
-| — | ~~No hosted CI~~ | — | **Resolved in v1.2** — GitHub Actions runs the full gate on push/PR to main (chromium blocking; webkit exploratory/non-blocking) |
+| — | ~~No hosted CI~~ | — | **Resolved in v1.2** — GitHub Actions runs the full gate on push/PR to main; both E2E jobs (chromium + webkit) block main since v1.5 |
 | — | ~~Inventory value basis mismatch ($135,360 vs reference $202,610)~~ | — | **Resolved in v1.1** — seed now carries reference costs; value derives to $202,610 exactly |
 | — | ~~Velocity-delta badges differ from reference semantics~~ | — | **Resolved in v1.1** — `salesDelta30d` (day-bucketed 30d-vs-prior-30d) reproduces +2/−1/0/+1/+2 and is pinned by unit + analytics tests |
 

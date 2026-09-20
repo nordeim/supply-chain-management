@@ -98,7 +98,7 @@ Optional demo sign-in account (seeded): `demo@supplychain.local` / `demo-passwor
 ### Test Pyramid
 - **Unit Tests (Vitest, 85)**: pure domain functions in `src/domain/*.test.ts` plus the env contract in `src/lib/env.test.ts` — velocity windows, low-stock scoring, reorder-quantity math, forecasting, 30-day sales deltas, ledger day-series replay, money formatting/parsing, ActionResult shape, gauge/tick-scale helpers, the session guard, and the reference reasoning sentence. TDD: Red → Green → Refactor; tests are colocated with the modules they cover. `bun run test:coverage` enforces 95/85/95/95 thresholds over the pure layer.
 - **Integration Check**: `scripts/verify-analytics.ts` — asserts the seeded ledger reproduces the reference KPIs (velocity 1.5/1.2/0.8/0.7/0.4/0.0, low-stock score −1, 11 pending suggestions, inventory value $202,610 cost basis, movers badges +2/−1/0/+1/+2, 90-day series integrity)
-- **E2E (Playwright, 31 tests)**: `e2e/*.spec.ts` run against the production build (`next start`, not dev) — every page renders with reference data, sign-in/out with the seeded demo account, product search, status filter, Order Details side panel, supplier detail navigation, AI reasoning expansion, health probe. CI runs chromium (blocking) and webkit (green, still `continue-on-error`) on pinned `ubuntu-24.04` runners with public failure annotations on the run page; locally webkit needs system libraries — run `--project=chromium` where unavailable. Hydration-race discipline: specs that act on SSR-rendered inputs wrap interact→assert in `toPass()` because Playwright actions don't retry.
+- **E2E (Playwright, 31 tests)**: `e2e/*.spec.ts` run against the production build (`next start`, not dev) — every page renders with reference data, sign-in/out with the seeded demo account, product search, status filter, Order Details side panel, supplier detail navigation, AI reasoning expansion, health probe. CI runs chromium and webkit as **both-blocking** jobs (webkit promoted from exploratory in PAD v1.5 after a 3-run post-fix green streak) on pinned `ubuntu-24.04` runners with public failure annotations on the run page; locally webkit needs system libraries — run `--project=chromium` where unavailable. Hydration-race discipline: specs that act on SSR-rendered inputs wrap interact→assert in `toPass()` because Playwright actions don't retry.
 
 ### Test Commands
 
@@ -110,7 +110,7 @@ bun run lint && bun run typecheck  # static gates — both must exit 0
 bun run build && bun run test:e2e  # full browser E2E against the shipped artifact
 ```
 
-CI (`.github/workflows/ci.yml`) runs this exact sequence on every push/PR to main, plus the seed + analytics gates; the webkit E2E project runs in a non-blocking exploratory job.
+CI (`.github/workflows/ci.yml`) runs this exact sequence on every push/PR to main, plus the seed + analytics gates; the webkit E2E project runs in a second required job (promoted from exploratory non-blocking to blocking in PAD v1.5).
 
 ## Code Quality Standards
 
