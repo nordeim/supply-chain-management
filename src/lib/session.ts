@@ -7,7 +7,7 @@
  */
 
 import { createHmac, scryptSync, timingSafeEqual } from 'node:crypto';
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { getServerEnv } from '@/lib/env';
 
 const SESSION_COOKIE = 'scm_session';
@@ -64,12 +64,31 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   return user ?? null;
 }
 
+/** True when the current request arrived over TLS — either directly or
+ *  through a TLS-terminating proxy that sets the standard
+ *  `x-forwarded-proto` header (first entry of a proxy chain). Direct
+ *  plain-HTTP requests (local dev, `next start` without TLS, HTTP E2E
+ *  servers) return false.
+ *
+ *  Why not `NODE_ENV === 'production'`: production-mode boots still speak
+ *  plain HTTP whenever TLS is terminated upstream (the documented
+ *  deployment). Marking the cookie Secure on a plain-HTTP transport makes
+ *  browsers DROP it — WebKit/Safari does so even for loopback hosts, which
+ *  is exactly why the webkit E2E sign-in round-trip failed on hosted CI
+ *  while chromium (which trusts loopback) passed. Secure when the request
+ *  is actually secure, never otherwise. */
+async function isHttpsRequest(): Promise<boolean> {
+  const h = await headers();
+  const proto = h.get('x-forwarded-proto')?.split(',')[0]?.trim().toLowerCase();
+  return proto === 'https';
+}
+
 export async function setSessionCookie(userId: string): Promise<void> {
   const store = await cookies();
   store.set(SESSION_COOKIE, createSessionToken(userId), {
     httpOnly: true,
     sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    secure: await isHttpsRequest(),
     path: '/',
     maxAge: Math.floor(SESSION_TTL_MS / 1000),
   });

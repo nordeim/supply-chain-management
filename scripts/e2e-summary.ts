@@ -159,8 +159,14 @@ function emitFailureAnnotations(cases: TestCaseResult[]): void {
   // for the overflow line when there are more failures than slots.
   const max = failures.length > 9 ? 9 : 10;
   for (const f of failures.slice(0, max)) {
-    const firstLine = (f.failureMessage || f.failureBody || "(no failure message recorded)").split("\n")[0] ?? "";
-    console.log(workflowErrorCommand(f.file, f.line, `E2E ${f.project}: ${f.name}`, firstLine));
+    // First ~2-3 lines of the failure: Playwright puts the failed
+    // expectation on line 1 and the locator/call-log detail right after.
+    const detail = (f.failureMessage || f.failureBody || "(no failure message recorded)")
+      .split("\n")
+      .slice(0, 4)
+      .join("\n")
+      .trim();
+    console.log(workflowErrorCommand(f.file, f.line, `E2E ${f.project}: ${f.name}`, detail));
   }
   if (failures.length > max) {
     console.log(
