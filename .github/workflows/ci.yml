@@ -1,0 +1,138 @@
+# CI — the hosted quality gate (resolves PAD §10 "No hosted CI").
+#
+# Runs the full local gate on every push to main and every PR:
+#   lint → typecheck → unit + coverage thresholds → db push/seed →
+#   verify:analytics → production build → Playwright chromium E2E
+#
+# The webkit project runs in a separate exploratory job
+# (continue-on-error) because its specs have never been validated in a
+# controlled environment — it keeps main green while surfacing webkit-only
+# failures. Flip it to a required gate once it has proven green.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality-gate:
+    name: Lint · Types · Unit+Coverage · Analytics · Build · E2E (chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # SQLite via Prisma; the file lands at <repo>/db/custom.db
+      # (relative `file:` URLs resolve against prisma/schema.prisma).
+      DATABASE_URL: "file:../db/custom.db"
+      # CI-only value: non-empty and not the documented dev default, so the
+      # production-mode boot validation (src/lib/env.ts) accepts it. This is
+      # NOT a deployment secret — never reuse it outside CI.
+      SESSION_SECRET: "ci-only-not-a-deployment-secret"
+      SEED_DEMO_EMAIL: "demo@supplychain.local"
+      SEED_DEMO_PASSWORD: "demo-password"
+      # Playwright boots `next start` on this port itself (playwright.config.ts).
+      E2E_PORT: "3002"
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Generate the Prisma client
+        run: bun run db:generate
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Unit tests with coverage thresholds
+        run: bun run test:coverage
+
+      - name: Push schema and seed demo data
+        run: |
+          bun run db:push
+          bun run db:seed
+
+      - name: Verify analytics parity (reference KPIs)
+        run: bun run verify:analytics
+
+      - name: Production build
+        run: bun run build
+
+      - name: Install Playwright chromium (with system deps)
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E suite (chromium)
+        run: npx playwright test --project=chromium
+
+      - name: Upload Playwright report (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-chromium
+          path: playwright-report/
+          retention-days: 7
+
+  e2e-webkit:
+    name: E2E (webkit, exploratory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Exploratory: webkit specs have never been validated — failures here
+    # must not block main. Remove this once the job is reliably green.
+    continue-on-error: true
+    env:
+      DATABASE_URL: "file:../db/custom.db"
+      SESSION_SECRET: "ci-only-not-a-deployment-secret"
+      SEED_DEMO_EMAIL: "demo@supplychain.local"
+      SEED_DEMO_PASSWORD: "demo-password"
+      E2E_PORT: "3003"
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Generate the Prisma client
+        run: bun run db:generate
+
+      - name: Push schema and seed demo data
+        run: |
+          bun run db:push
+          bun run db:seed
+
+      - name: Production build
+        run: bun run build
+
+      - name: Install Playwright webkit (with system deps)
+        run: npx playwright install --with-deps webkit
+
+      - name: E2E suite (webkit)
+        run: npx playwright test --project=webkit
+
+      - name: Upload Playwright report (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-webkit
+          path: playwright-report/
+          retention-days: 7

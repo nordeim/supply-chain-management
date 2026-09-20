@@ -276,3 +276,178 @@ describe('engine constants', () => {
     expect(VELOCITY_WINDOW_DAYS).toBe(150);
   });
 });
+
+/* ------------------------------------------------------------------ */
+/* Pinning tests for previously uncovered engine surfaces              */
+/* ------------------------------------------------------------------ */
+
+import {
+  analyzeProduct,
+  buildLedgerDaySeries,
+  forecastDemand,
+  needsReplenishment,
+  projectedStockAtLeadTime,
+  velocityDelta,
+} from './replenishment';
+
+describe('velocityDelta (change vs previous 30-day window)', () => {
+  it('falling demand: 1/day now vs 2/day prior window = -1.0', () => {
+    const movements: MovementRecord[] = [];
+    for (let d = 1; d <= 30; d += 1) movements.push(sale(d, 1, NOW)); // current window
+    for (let d = 31; d <= 60; d += 1) movements.push(sale(d, 2, NOW)); // 2/day prior window
+    expect(velocityDelta(movements, NOW)).toBe(-1.0);
+  });
+
+  it('rising demand: 2/day now vs 1/day prior window = +1.0', () => {
+    const movements: MovementRecord[] = [];
+    for (let d = 1; d <= 30; d += 1) movements.push(sale(d, 2, NOW));
+    for (let d = 31; d <= 60; d += 1) movements.push(sale(d, 1, NOW));
+    expect(velocityDelta(movements, NOW)).toBe(1.0);
+  });
+
+  it('no history at all = 0', () => {
+    expect(velocityDelta([], NOW)).toBe(0);
+  });
+});
+
+describe('projectedStockAtLeadTime', () => {
+  const now = NOW;
+  // 300 sales over a mature 150-day ledger => exactly 2.0/day.
+  const twoPerDay: MovementRecord[] = [];
+  for (let d = 1; d <= 150; d += 1) twoPerDay.push(sale(d, 2, now));
+  // 45 sales over 150 days => 0.3/day (rounding branch).
+  const slow: MovementRecord[] = [];
+  for (let d = 1; d <= 150; d += 1) slow.push(sale(d, 0.3, now)); // fractional deltas are allowed
+
+  it('prefers the supplier lead time when present', () => {
+    const p = { stock: 100, reorderPoint: 10, reorderQty: 25, leadTimeDays: 5, supplierLeadTimeDays: 10, movements: twoPerDay, now };
+    expect(projectedStockAtLeadTime(p)).toBe(80); // 100 - 2.0 * 10
+  });
+
+  it('falls back to the product lead time when supplier lead is null', () => {
+    const p = { stock: 100, reorderPoint: 10, reorderQty: 25, leadTimeDays: 5, supplierLeadTimeDays: null, movements: twoPerDay, now };
+    expect(projectedStockAtLeadTime(p)).toBe(90); // 100 - 2.0 * 5
+  });
+
+  it('rounds the projection to a whole unit', () => {
+    // 45 units / 150 days = 0.3/day; 100 - 0.3*10 = 97.0
+    const p = { stock: 100, reorderPoint: 10, reorderQty: 25, leadTimeDays: 10, supplierLeadTimeDays: null, movements: slow, now };
+    expect(projectedStockAtLeadTime(p)).toBe(97);
+  });
+});
+
+describe('needsReplenishment', () => {
+  it('is true immediately when stock is at or below the reorder point', () => {
+    const p = { stock: 5, reorderPoint: 10, reorderQty: 25, leadTimeDays: 7, supplierLeadTimeDays: null, movements: [], now: NOW };
+    expect(needsReplenishment(p)).toBe(true);
+  });
+
+  it('is true when the lead-time projection dips below the reorder point', () => {
+    const twoPerDay: MovementRecord[] = [];
+    for (let d = 1; d <= 150; d += 1) twoPerDay.push(sale(d, 2, NOW));
+    const p = { stock: 15, reorderPoint: 10, reorderQty: 25, leadTimeDays: 10, supplierLeadTimeDays: null, movements: twoPerDay, now: NOW };
+    expect(needsReplenishment(p)).toBe(true); // projected 15 - 20 = -5 < 10
+  });
+
+  it('is false for a healthy position', () => {
+    const p = { stock: 100, reorderPoint: 10, reorderQty: 25, leadTimeDays: 7, supplierLeadTimeDays: null, movements: [], now: NOW };
+    expect(needsReplenishment(p)).toBe(false); // no sales => projected = stock
+  });
+});
+
+describe('forecastDemand', () => {
+  const twoPerDay: MovementRecord[] = [];
+  for (let d = 1; d <= 150; d += 1) twoPerDay.push(sale(d, 2, NOW));
+
+  it('produces 30 daily points with the ±25% confidence band', () => {
+    const points = forecastDemand({ stock: 100, reorderPoint: 10, reorderQty: 25, leadTimeDays: 5, supplierLeadTimeDays: null, movements: twoPerDay, now: NOW });
+    expect(points).toHaveLength(30);
+    expect(points[0]).toMatchObject({ demand: 2, lower: 1.5, upper: 2.5 });
+    expect(points[29]).toMatchObject({ demand: 60, lower: 45, upper: 75 });
+  });
+
+  it('advances one calendar day per point', () => {
+    const points = forecastDemand({ stock: 100, reorderPoint: 10, reorderQty: 25, leadTimeDays: 5, supplierLeadTimeDays: null, movements: twoPerDay, now: NOW });
+    const day = 24 * 60 * 60 * 1000;
+    for (let i = 1; i < points.length; i += 1) {
+      expect(Date.parse(points[i]!.date) - Date.parse(points[i - 1]!.date)).toBe(day);
+    }
+    const expectedFirst = new Date(NOW.getTime() + day).toISOString().slice(0, 10);
+    expect(points[0]!.date).toBe(expectedFirst);
+  });
+
+  it('zero velocity forecasts flat zero demand', () => {
+    const points = forecastDemand({ stock: 100, reorderPoint: 10, reorderQty: 25, leadTimeDays: 5, supplierLeadTimeDays: null, movements: [], now: NOW });
+    expect(points).toHaveLength(30);
+    expect(points.every((pt) => pt.demand === 0 && pt.lower === 0 && pt.upper === 0)).toBe(true);
+  });
+});
+
+describe('analyzeProduct (composed snapshot)', () => {
+  it('derives every field from the ledger and policy in one call', () => {
+    // Even 2/day over a mature window: velocity 2.0, deltas 0, cover 50.
+    const movements: MovementRecord[] = [];
+    for (let d = 1; d <= 150; d += 1) movements.push(sale(d, 2, NOW));
+    const snapshot = analyzeProduct({
+      stock: 100,
+      reorderPoint: 10,
+      reorderQty: 25,
+      leadTimeDays: 5,
+      supplierLeadTimeDays: 7,
+      movements,
+      now: NOW,
+    });
+    expect(snapshot.velocityPerDay).toBe(2);
+    // velocityDelta is time-based (<= 30d) => 60 vs 60 = 0; salesDelta30d is
+    // day-bucketed (recent = day offsets 0..29) => 58 vs 60 = -2. The two
+    // window semantics are intentionally different (reference parity).
+    expect(snapshot.velocityDelta).toBe(0);
+    expect(snapshot.salesDelta30d).toBe(-2);
+    expect(snapshot.totalSales).toBe(300);
+    expect(snapshot.daysOfCover).toBe(50);
+    expect(snapshot.stockGap).toBe(90);
+    expect(snapshot.forecast).toHaveLength(30);
+    expect(snapshot.forecast[29]!.demand).toBe(60);
+  });
+});
+
+describe('buildLedgerDaySeries (90-day chart data)', () => {
+  it('walks the ledger backwards day-by-day on a cost basis', () => {
+    const movements: MovementRecord[] = [
+      restock(5, 10, NOW),
+      sale(4, 1, NOW),
+      sale(3, 1, NOW),
+      sale(2, 1, NOW),
+    ];
+    const series = buildLedgerDaySeries([{ costMinor: 1000, movements }], 7, NOW);
+    // daily stock walking back from 7: [7,7,7,8,9,10,0] -> oldest-first series
+    expect(series.map((p) => p.valueMinor)).toEqual([0, 10000, 9000, 8000, 7000, 7000, 7000]);
+  });
+
+  it('aggregates multiple products and ignores movement-free products', () => {
+    const movements: MovementRecord[] = [restock(1, 4, NOW), sale(1, 1, NOW)];
+    const series = buildLedgerDaySeries(
+      [
+        { costMinor: 1000, movements },
+        { costMinor: 2000, movements: [] },
+      ],
+      3,
+      NOW,
+    );
+    // Product A: current stock 3; day values are END-of-day stock, so the
+    // restock+sale day (yesterday) closes at 3 and the day before is 0.
+    expect(series.map((p) => p.valueMinor)).toEqual([0, 3000, 3000]);
+  });
+
+  it('emits one ISO date per day ending today', () => {
+    const series = buildLedgerDaySeries([{ costMinor: 100, movements: [] }], 5, NOW);
+    expect(series).toHaveLength(5);
+    const startOfToday = new Date(NOW);
+    startOfToday.setHours(0, 0, 0, 0);
+    expect(series[4]!.date).toBe(startOfToday.toISOString().slice(0, 10));
+    const day = 24 * 60 * 60 * 1000;
+    for (let i = 1; i < series.length; i += 1) {
+      expect(Date.parse(series[i]!.date) - Date.parse(series[i - 1]!.date)).toBe(day);
+    }
+  });
+});

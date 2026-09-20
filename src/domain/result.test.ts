@@ -37,3 +37,15 @@ describe('toActionResult', () => {
     expect(r.message).toBe('boom');
   });
 });
+
+describe('toActionResult (non-Error throws)', () => {
+  it('converts thrown non-Errors into INTERNAL with a generic message', async () => {
+    const r = await toActionResult(async () => {
+      throw 'not an error'; // eslint-disable-line no-throw-literal -- deliberate
+    });
+    expect(r.ok).toBe(false);
+    if (r.ok) throw new Error('unreachable');
+    expect(r.code).toBe('INTERNAL');
+    expect(r.message).toBe('Unexpected server error');
+  });
+});

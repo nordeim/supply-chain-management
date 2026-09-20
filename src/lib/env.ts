@@ -15,7 +15,7 @@ export interface ServerEnv {
 
 const DEFAULT_SESSION_SECRET = 'dev-only-insecure-session-secret-change-me';
 
-export function parseServerEnv(source: NodeJS.ProcessEnv = process.env): ServerEnv {
+export function parseServerEnv(source: Readonly<Record<string, string | undefined>> = process.env): ServerEnv {
   const errors: string[] = [];
 
   const databaseUrl = source.DATABASE_URL?.trim();
@@ -39,4 +39,24 @@ export function parseServerEnv(source: NodeJS.ProcessEnv = process.env): ServerE
     NODE_ENV: source.NODE_ENV ?? 'development',
     SESSION_SECRET: sessionSecret || DEFAULT_SESSION_SECRET,
   };
+}
+
+/**
+ * Memoized runtime seam over parseServerEnv.
+ *
+ * Validation happens lazily at call time (never at import time) so
+ * `next build` never requires a production secret; the first request that
+ * signs a session (src/lib/session.ts) triggers it, which is what enforces
+ * the documented "production refuses the insecure default" contract.
+ */
+let cachedEnv: ServerEnv | null = null;
+
+export function getServerEnv(): ServerEnv {
+  cachedEnv ??= parseServerEnv();
+  return cachedEnv;
+}
+
+/** Test seam: clear the memo so a new parseServerEnv run takes effect. */
+export function resetServerEnvCache(): void {
+  cachedEnv = null;
 }

@@ -12,6 +12,7 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { db } from '@/lib/db';
 import { fail, ok, toActionResult, type ActionResult } from '@/domain/result';
+import { requireSignedIn } from '@/domain/guard';
 import { parseMoneyToMinor } from '@/domain/money';
 import { buildAiReasoning, velocityPerDay, daysOfCover, projectedStockAtLeadTime } from '@/domain/replenishment';
 import {
@@ -114,8 +115,16 @@ export async function createProductAction(input: CreateProductInput): Promise<Ac
 /* Suggestion review (approve / dismiss)                                */
 /* ------------------------------------------------------------------ */
 
+// Admin-path actions (approve/dismiss/update/generate) have no UI surface
+// after the reference-parity remediation; they refuse anonymous callers
+// (src/domain/guard.ts). Public surfaces the reference app exposes —
+// reads, the New Product dialog, sign-in/up/out — intentionally stay open.
+
 export async function approveSuggestionAction(orderId: string): Promise<ActionResult<{ orderNumber: string }>> {
   return toActionResult(async () => {
+    const denied = requireSignedIn((await getSessionUser())?.id ?? null);
+    if (denied) return denied;
+
     const id = z.string().min(1).safeParse(orderId);
     if (!id.success) return fail('VALIDATION', 'Order id is required');
 
@@ -137,6 +146,9 @@ export async function approveSuggestionAction(orderId: string): Promise<ActionRe
 
 export async function dismissSuggestionAction(orderId: string): Promise<ActionResult<{ orderNumber: string }>> {
   return toActionResult(async () => {
+    const denied = requireSignedIn((await getSessionUser())?.id ?? null);
+    if (denied) return denied;
+
     const id = z.string().min(1).safeParse(orderId);
     if (!id.success) return fail('VALIDATION', 'Order id is required');
 
@@ -172,6 +184,9 @@ export async function updateOrderStatusAction(
   nextStatus: 'Approved' | 'Delivered' | 'Cancelled',
 ): Promise<ActionResult<{ orderNumber: string; newStatus: string }>> {
   return toActionResult(async () => {
+    const denied = requireSignedIn((await getSessionUser())?.id ?? null);
+    if (denied) return denied;
+
     const id = z.string().min(1).safeParse(orderId);
     const status = z.enum(['Approved', 'Delivered', 'Cancelled']).safeParse(nextStatus);
     if (!id.success || !status.success) return fail('VALIDATION', 'Invalid order or status');
@@ -212,6 +227,9 @@ export async function updateOrderStatusAction(
 
 export async function generateSuggestionsAction(): Promise<ActionResult<{ created: number }>> {
   return toActionResult(async () => {
+    const denied = requireSignedIn((await getSessionUser())?.id ?? null);
+    if (denied) return denied;
+
     const products = await db.product.findMany({ include: { supplier: true, movements: true } });
     const now = new Date();
 

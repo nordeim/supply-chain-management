@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  formatMoney,
   formatMoneyPlain,
   formatMoneyWhole,
   lineTotalMinor,
@@ -67,5 +68,23 @@ describe('lineTotalMinor', () => {
 
   it('25 units at 280.00 = $7,000', () => {
     expect(lineTotalMinor(28000, 25)).toBe(700000);
+  });
+});
+
+describe('formatMoney (cents only when they matter)', () => {
+  it('drops the fraction for whole-dollar amounts: 258000 -> $2,580', () => {
+    expect(formatMoney(258000)).toBe('$2,580');
+  });
+
+  it('keeps cents when they matter: 258050 -> $2,580.50', () => {
+    expect(formatMoney(258050)).toBe('$2,580.50');
+  });
+
+  it('signs negative amounts: -500 -> -$5', () => {
+    expect(formatMoney(-500)).toBe('-$5');
+  });
+
+  it('rounds half-unit input to the nearest cent: 5 -> $0.05', () => {
+    expect(formatMoney(5)).toBe('$0.05');
   });
 });

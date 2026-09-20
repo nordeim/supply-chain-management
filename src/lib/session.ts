@@ -8,14 +8,16 @@
 
 import { createHmac, scryptSync, timingSafeEqual } from 'node:crypto';
 import { cookies } from 'next/headers';
+import { getServerEnv } from '@/lib/env';
 
 const SESSION_COOKIE = 'scm_session';
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 function secret(): string {
-  // Parsed at call time (not import time) so `next build` never requires it.
-  const value = process.env.SESSION_SECRET?.trim();
-  return value && value.length > 0 ? value : 'dev-only-insecure-session-secret-change-me';
+  // Validated lazily through the env contract (call time, not import time,
+  // so `next build` never requires it). Production refuses the insecure
+  // default here — see src/lib/env.ts getServerEnv().
+  return getServerEnv().SESSION_SECRET;
 }
 
 function sign(payload: string): string {

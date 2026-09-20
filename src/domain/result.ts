@@ -4,22 +4,25 @@
  * Server Actions and every mutation seam return this union instead of
  * throwing across the boundary. A thrown error inside an action becomes an
  * INTERNAL result; validation problems become VALIDATION; expected domain
- * rule violations become DOMAIN. The UI renders the message verbatim —
- * operator-level detail is logged server-side, never shipped to the client.
+ * rule violations become DOMAIN; anonymous callers of admin-only actions
+ * become UNAUTHENTICATED (src/domain/guard.ts). The UI renders the message
+ * verbatim — operator-level detail is logged server-side, never shipped to
+ * the client.
  */
 
-export type ActionResult<T> =
-  | { ok: true; data: T }
-  | { ok: false; code: 'VALIDATION' | 'DOMAIN' | 'NOT_FOUND' | 'INTERNAL'; message: string };
+export type ActionFailure = {
+  ok: false;
+  code: 'VALIDATION' | 'DOMAIN' | 'NOT_FOUND' | 'INTERNAL' | 'UNAUTHENTICATED';
+  message: string;
+};
+
+export type ActionResult<T> = { ok: true; data: T } | ActionFailure;
 
 export function ok<T>(data: T): ActionResult<T> {
   return { ok: true, data };
 }
 
-export function fail<T = never>(
-  code: 'VALIDATION' | 'DOMAIN' | 'NOT_FOUND' | 'INTERNAL',
-  message: string,
-): ActionResult<T> {
+export function fail(code: ActionFailure['code'], message: string): ActionFailure {
   return { ok: false, code, message };
 }
 
