@@ -41,7 +41,7 @@ describe('toActionResult', () => {
 describe('toActionResult (non-Error throws)', () => {
   it('converts thrown non-Errors into INTERNAL with a generic message', async () => {
     const r = await toActionResult(async () => {
-      throw 'not an error'; // eslint-disable-line no-throw-literal -- deliberate
+      throw 'not an error'; // deliberate non-Error throw
     });
     expect(r.ok).toBe(false);
     if (r.ok) throw new Error('unreachable');

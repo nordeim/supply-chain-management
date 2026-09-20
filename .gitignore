@@ -15,6 +15,21 @@ server.log
 playwright-report/
 test-results/
 
+# Automation-sandbox scaffolding — this workspace's harness occasionally
+# auto-commits untracked files; these never belong in the repository
+# (auth.json especially: it stores agent-browser credentials).
+.zscripts/
+agent-browser.json
+auth.json
+Caddyfile
+download/
+examples/
+mini-services/
+tool-results/
+upload/
+worklog.md
+tests/
+
 # Build artifacts
 tsconfig.tsbuildinfo
 

@@ -17,6 +17,13 @@ import { defineConfig, devices } from "@playwright/test";
  * Env:
  *   E2E_PORT     — port for webServer (default 3002)
  *   E2E_BASE_URL — full base URL to reuse an external server (CI: set to reuse)
+ *
+ * Reporting: `list` (stdout) + HTML (playwright-report/) + JUnit
+ * (test-results/junit.xml — parsed by scripts/e2e-summary.ts, which CI
+ * appends to $GITHUB_STEP_SUMMARY so failures are visible without log
+ * access). The webkit project gets a longer per-test timeout: it runs on
+ * hosted CI as an exploratory job and WebKit hydration/clicks are slower
+ * there than chromium.
  */
 const PORT = Number(process.env.E2E_PORT ?? 3002);
 const baseURL = process.env.E2E_BASE_URL ?? `http://127.0.0.1:${PORT}`;
@@ -27,7 +34,11 @@ export default defineConfig({
   expect: { timeout: 5_000 },
   fullyParallel: false,
   retries: 0,
-  reporter: [["list"], ["html", { open: "never" }]],
+  reporter: [
+    ["list"],
+    ["html", { open: "never" }],
+    ["junit", { outputFile: "test-results/junit.xml" }],
+  ],
   use: {
     baseURL,
     trace: "on-first-retry",
@@ -35,7 +46,10 @@ export default defineConfig({
   },
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
-    { name: "webkit", use: { ...devices["Desktop Safari"] } },
+    // WebKit is slower in headless automation (hydration, actionability
+    // checks), and its CI job runs on shared hosted runners — give the
+    // exploratory project more headroom without loosening chromium's gate.
+    { name: "webkit", use: { ...devices["Desktop Safari"] }, timeout: 60_000 },
   ],
   webServer: process.env.E2E_BASE_URL
     ? undefined

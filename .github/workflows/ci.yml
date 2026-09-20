@@ -7,7 +7,11 @@
 # The webkit project runs in a separate exploratory job
 # (continue-on-error) because its specs have never been validated in a
 # controlled environment — it keeps main green while surfacing webkit-only
-# failures. Flip it to a required gate once it has proven green.
+# failures. Both E2E jobs append a public results summary (totals + failure
+# details, from test-results/junit.xml via `bun run e2e:summary`) to the
+# job's GITHUB_STEP_SUMMARY — GitHub's step logs are login-walled, but job
+# summaries render on the public run page, which is how webkit-only
+# failures are diagnosed without downloading the report artifact.
 
 name: CI
 
@@ -40,7 +44,7 @@ jobs:
       E2E_PORT: "3002"
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
@@ -79,12 +83,18 @@ jobs:
       - name: E2E suite (chromium)
         run: npx playwright test --project=chromium
 
+      - name: Publish E2E results summary (always)
+        if: always()
+        run: bun run e2e:summary
+
       - name: Upload Playwright report (on failure)
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report-chromium
-          path: playwright-report/
+          path: |
+            playwright-report/
+            test-results/junit.xml
           retention-days: 7
 
   e2e-webkit:
@@ -102,7 +112,7 @@ jobs:
       E2E_PORT: "3003"
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
@@ -129,10 +139,19 @@ jobs:
       - name: E2E suite (webkit)
         run: npx playwright test --project=webkit
 
+      # Runs even when the E2E step fails (job-level continue-on-error is
+      # set) — writes totals + per-failure details into the job summary so
+      # webkit-only failures are publicly diagnosable on the run page.
+      - name: Publish E2E results summary (always)
+        if: always()
+        run: bun run e2e:summary
+
       - name: Upload Playwright report (on failure)
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report-webkit
-          path: playwright-report/
+          path: |
+            playwright-report/
+            test-results/junit.xml
           retention-days: 7

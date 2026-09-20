@@ -28,8 +28,10 @@ test.describe('Dashboard', () => {
     await page.getByRole('link', { name: 'Total SKUs: 6' }).click();
     await expect(page).toHaveURL(/\/products$/);
 
-    // Pending POS -> /ai-suggestions
+    // Pending POS -> /ai-suggestions. WebKit resolves history.back() before
+    // the bfcache page is interactive again — wait for it before clicking.
     await page.goBack();
+    await page.waitForLoadState('domcontentloaded');
     await page.getByRole('link', { name: 'Pending POS: 11' }).click();
     await expect(page).toHaveURL(/\/ai-suggestions$/);
   });

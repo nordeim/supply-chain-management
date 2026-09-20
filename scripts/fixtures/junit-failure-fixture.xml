@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites id="" name="" tests="5" failures="2" skipped="0" errors="0" time="41.2">
+<testsuite name="e2e/dashboard.spec.ts" timestamp="2026-09-20T02:36:07.623Z" hostname="webkit" tests="3" failures="1" skipped="0" time="31.0" errors="0">
+<testcase name="Dashboard &amp; renders the four KPI cards with reference values" classname="e2e/dashboard.spec.ts" file="e2e/dashboard.spec.ts" line="14" time="30.1">
+<failure message="TimeoutError: locator.waitFor: Timeout 60000ms exceeded." type="FAILURE">
+TimeoutError: locator.waitFor: Timeout 60000ms exceeded.
+Call log:
+  - waiting for getByText('Total SKUs') to be visible
+  - locator resolved to 0 elements
+</failure>
+</testcase>
+<testcase name="Dashboard &amp; KPI cards navigate to their reference targets" classname="e2e/dashboard.spec.ts" file="e2e/dashboard.spec.ts" line="26" time="1.2">
+</testcase>
+<testcase name="Dashboard &amp; low-stock gauge shows the -20/-10/0 scale with a red marker" classname="e2e/dashboard.spec.ts" file="e2e/dashboard.spec.ts" line="39" time="0.8">
+</testcase>
+</testsuite>
+<testsuite name="e2e/auth.spec.ts" timestamp="2026-09-20T02:36:07.623Z" hostname="webkit" tests="2" failures="1" skipped="0" time="10.2" errors="0">
+<testcase name="Authentication &amp; signs in with the demo account and signs out" classname="e2e/auth.spec.ts" file="e2e/auth.spec.ts" line="24" time="9.4">
+<failure message="Error: page.getByLabel(&#39;Email&#39;): fill target went away" type="FAILURE">
+Error: page.getByLabel('Email'): fill target went away
+</failure>
+</testcase>
+<testcase name="Authentication &amp; rejects wrong credentials with the reference vague message" classname="e2e/auth.spec.ts" file="e2e/auth.spec.ts" line="38" time="0.8">
+</testcase>
+</testsuite>
+</testsuites>
