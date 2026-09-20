@@ -4,14 +4,15 @@
 #   lint → typecheck → unit + coverage thresholds → db push/seed →
 #   verify:analytics → production build → Playwright chromium E2E
 #
-# The webkit project runs in a separate exploratory job
-# (continue-on-error) because its specs have never been validated in a
-# controlled environment — it keeps main green while surfacing webkit-only
-# failures. Both E2E jobs append a public results summary (totals + failure
-# details, from test-results/junit.xml via `bun run e2e:summary`) to the
-# job's GITHUB_STEP_SUMMARY — GitHub's step logs are login-walled, but job
-# summaries render on the public run page, which is how webkit-only
-# failures are diagnosed without downloading the report artifact.
+# The webkit project runs in a separate required job — promoted to
+# blocking in v1.5 after a three-run post-fix green streak (#8/#9/#10)
+# validated the v1.4 hydration-race remediation; earlier flake history
+# and the promotion decision are recorded in PAD §8.4. Both E2E jobs
+# append a public results summary (totals + failure details, from
+# test-results/junit.xml via `bun run e2e:summary`) to the job's
+# GITHUB_STEP_SUMMARY — GitHub's step logs are login-walled, but job
+# summaries render on the public run page, which is how E2E failures
+# are diagnosed without downloading the report artifact.
 
 name: CI
 
@@ -101,14 +102,15 @@ jobs:
           retention-days: 7
 
   e2e-webkit:
-    name: E2E (webkit, exploratory)
+    name: E2E (webkit)
     # Pinned to match quality-gate (see note there): one runner image, one
     # validated system-deps story for webkit.
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    # Exploratory: webkit specs have never been validated — failures here
-    # must not block main. Remove this once the job is reliably green.
-    continue-on-error: true
+    # Promoted to a required gate (v1.5): green on hosted-CI runs #5/#6 and
+    # #8/#9/#10 (the runs after the v1.4 two-layer flake fix, validated with
+    # a deterministic local red/green proof). A webkit failure now blocks
+    # main — history and rationale in PAD §8.4.
     env:
       DATABASE_URL: "file:../db/custom.db"
       SESSION_SECRET: "ci-only-not-a-deployment-secret"
@@ -144,9 +146,9 @@ jobs:
       - name: E2E suite (webkit)
         run: npx playwright test --project=webkit
 
-      # Runs even when the E2E step fails (job-level continue-on-error is
-      # set) — writes totals + per-failure details into the job summary so
-      # webkit-only failures are publicly diagnosable on the run page.
+      # Runs even when the E2E step fails — writes totals + per-failure
+      # details into the job summary so failures are publicly diagnosable
+      # on the run page (annotations carry the same content).
       - name: Publish E2E results summary (always)
         if: always()
         run: bun run e2e:summary
