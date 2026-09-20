@@ -32,9 +32,21 @@ test.describe('Products', () => {
   });
 
   test('search filters the catalog', async ({ page }) => {
-    await page.getByRole('searchbox').fill('50mm');
-    await page.keyboard.press('Enter');
-    await expect(page).toHaveURL(/q=50mm/);
+    // Hydration-race hardening: Playwright ACTIONS don't retry (assertions
+    // do), and on slow runners (shared-CI webkit, run #7 of the CI history)
+    // fill+Enter can land before the products page's client island
+    // hydrates — React then resets the controlled input to its state value
+    // and the unwired submit is a no-op, so the URL never gains ?q=. The
+    // form's name="q" input covers the both-pre-hydration interleaving via
+    // implicit GET submission; this toPass() block covers the rest by
+    // retrying interact→assert as a unit (each attempt 2s, budget 20s).
+    await expect(async () => {
+      const searchbox = page.getByRole('searchbox');
+      await searchbox.fill('50mm');
+      await searchbox.press('Enter');
+      await expect(page).toHaveURL(/q=50mm/, { timeout: 2_000 });
+    }).toPass({ timeout: 20_000 });
+
     await expect(page.getByText('ELEC-LENS-001')).toBeVisible();
     await expect(page.getByText('ELEC-CAM-001')).toHaveCount(0);
   });

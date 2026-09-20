@@ -41,8 +41,11 @@ export function OrderFilters({ initialSearch, initialStatus }: { initialSearch: 
     <div className="flex flex-wrap items-center gap-2" data-pending={isPending ? 'true' : undefined}>
       <form onSubmit={handleSubmit} className="relative">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+        {/* name="q": pre-hydration Enter → implicit GET submission carries the
+            query (graceful degradation). Inert post-hydration (preventDefault). */}
         <Input
           type="search"
+          name="q"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search"

@@ -75,8 +75,13 @@ export function ProductsFilters({
     <div className="flex flex-wrap items-center gap-2" data-pending={isPending ? 'true' : undefined}>
       <form onSubmit={handleSubmit} className="relative">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+        {/* name="q": if Enter lands before hydration (no onSubmit wired yet),
+            the browser's implicit GET submission carries the query — the URL
+            and server-rendered table stay correct. Inert post-hydration:
+            handleSubmit preventDefaults, so the URL flow is router-driven. */}
         <Input
           type="search"
+          name="q"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search"

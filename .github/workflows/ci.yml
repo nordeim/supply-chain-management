@@ -28,7 +28,10 @@ concurrency:
 jobs:
   quality-gate:
     name: Lint · Types · Unit+Coverage · Analytics · Build · E2E (chromium)
-    runs-on: ubuntu-latest
+    # Pinned (not ubuntu-latest): the label migrates to Ubuntu 26 on
+    # 2026-10-19 (actions/runner-images#14748) — pinning freezes the runner
+    # image this gate was validated on; re-pin deliberately when updating.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       # SQLite via Prisma; the file lands at <repo>/db/custom.db
@@ -99,7 +102,9 @@ jobs:
 
   e2e-webkit:
     name: E2E (webkit, exploratory)
-    runs-on: ubuntu-latest
+    # Pinned to match quality-gate (see note there): one runner image, one
+    # validated system-deps story for webkit.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     # Exploratory: webkit specs have never been validated — failures here
     # must not block main. Remove this once the job is reliably green.
