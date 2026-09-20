@@ -8,6 +8,7 @@ import { PrismaClient } from '@prisma/client';
 import {
   analyzeProduct,
   lowStockScore,
+  salesDelta30d,
   velocityPerDay,
   buildLedgerDaySeries,
 } from '../src/domain/replenishment';
@@ -25,6 +26,16 @@ async function main(): Promise<void> {
     'ELEC-LENS-001': 0.8,
     'ELEC-LENS-002': 0.7,
     'ELEC-LENS-003': 0.0,
+  };
+
+  // Reference top-movers badge values (+2/−1/0/+1/+2 chips).
+  const expectedSalesDelta: Record<string, number> = {
+    'ELEC-CAM-001': 2,
+    'ELEC-CAM-002': -1,
+    'ELEC-CAM-003': 2,
+    'ELEC-LENS-001': 0,
+    'ELEC-LENS-002': 1,
+    'ELEC-LENS-003': 0,
   };
 
   console.log('=== Velocity check (engine rule) ===');
@@ -50,9 +61,22 @@ async function main(): Promise<void> {
   if (!pendingPass) failures += 1;
   console.log(`  count=${pending} ${pendingPass ? 'PASS' : 'FAIL'}`);
 
-  console.log('=== Inventory value (cost basis) ===');
+  console.log('=== Inventory value (cost basis, reference KPI $202,610) ===');
   const value = products.reduce((sum, p) => sum + p.stock * p.costMinor, 0);
   console.log(`  $${(value / 100).toLocaleString('en-US')}`);
+  const valuePass = value === 20261000;
+  if (!valuePass) failures += 1;
+  console.log(`  matches reference $202,610: ${valuePass ? 'PASS' : 'FAIL'}`);
+
+  console.log('=== 30-day sales delta (movers badge values) ===');
+  for (const p of products) {
+    const movements = p.movements.map((m) => ({ delta: m.delta, reason: m.reason, occurredAt: m.createdAt }));
+    const delta = salesDelta30d(movements, now);
+    const expected = expectedSalesDelta[p.sku] ?? -99;
+    const pass = delta === expected;
+    if (!pass) failures += 1;
+    console.log(`  ${p.sku}: delta=${delta > 0 ? '+' : ''}${delta} expected=${expected > 0 ? '+' : ''}${expected} ${pass ? 'PASS' : 'FAIL'}`);
+  }
 
   console.log('=== 90-day inventory value series sanity ===');
   const series = buildLedgerDaySeries(
@@ -81,7 +105,7 @@ async function main(): Promise<void> {
       movements: p.movements.map((m) => ({ delta: m.delta, reason: m.reason, occurredAt: m.createdAt })),
     });
     console.log(
-      `  ${p.sku}: sales=${analytics.totalSales} velocity=${analytics.velocityPerDay} delta=${analytics.velocityDelta} cover=${analytics.daysOfCover ?? '-'} gap=${analytics.stockGap}`,
+      `  ${p.sku}: sales=${analytics.totalSales} velocity=${analytics.velocityPerDay} badge=${analytics.salesDelta30d > 0 ? '+' : ''}${analytics.salesDelta30d} cover=${analytics.daysOfCover ?? '-'} gap=${analytics.stockGap}`,
     );
   }
 

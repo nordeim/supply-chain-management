@@ -26,7 +26,7 @@ export default async function MarketTrendsPage() {
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {summary.map((item) => (
-          <div key={item.label} className="rounded-2xl bg-[#f3f4f6] p-5">
+          <div key={item.label} className="rounded-[32px] bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
             <p className="text-sm font-medium text-muted-foreground">{item.label}</p>
             <p
               className={cn(
@@ -41,7 +41,7 @@ export default async function MarketTrendsPage() {
       </div>
 
       {trends.length === 0 ? (
-        <p className="rounded-2xl bg-[#f3f4f6] p-6 text-sm text-muted-foreground">
+        <p className="rounded-[32px] bg-white p-6 shadow-[0_1px_2px_rgba(0,0,0,0.05)] text-sm text-muted-foreground">
           No market trend data available yet.
         </p>
       ) : (
@@ -52,7 +52,7 @@ export default async function MarketTrendsPage() {
             const iconTone =
               trend.direction === 'Up' ? 'text-success' : trend.direction === 'Down' ? 'text-destructive' : 'text-muted-foreground';
             return (
-              <article key={trend.id} className="rounded-2xl bg-[#f3f4f6] p-5">
+              <article key={trend.id} className="rounded-[32px] bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h2 className="text-lg font-bold">{trend.category}</h2>
                   <span

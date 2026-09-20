@@ -3,19 +3,18 @@ import { NavSidebar } from "@/components/app/nav-sidebar";
 import type { SessionUser } from "@/lib/session";
 
 /**
- * AppShell — full-width header (brand tabs + actions), then a left nav rail
- * and the white rounded content container. Layout geometry cloned from the
- * reference app (header 50px, nav rail 224px, content radius 32px).
+ * AppShell — full-width header (brand + actions), then the left nav rail and
+ * the content column sitting directly on the gray app background (geometry
+ * cloned from the reference: header 50px, nav rail 224px, content at
+ * x=256 with sections rendered as white 32px-radius cards).
  */
 export function AppShell({ user, children }: { user: SessionUser | null; children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-[#f3f4f6] flex flex-col">
+    <div className="min-h-screen bg-background flex flex-col">
       <HeaderBar user={user} />
-      <div className="flex flex-1 gap-4 px-4 pb-6 min-w-0">
+      <div className="flex flex-1 gap-0 px-4 pb-8 pt-12 min-w-0">
         <NavSidebar />
-        <main className="flex-1 min-w-0 bg-white rounded-[32px] shadow-[0_1px_2px_rgba(0,0,0,0.05)] p-6 lg:p-8">
-          {children}
-        </main>
+        <main className="min-w-0 flex-1 lg:pl-2">{children}</main>
       </div>
     </div>
   );

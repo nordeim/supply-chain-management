@@ -2,15 +2,20 @@ import { defineConfig, devices } from "@playwright/test";
 
 /**
  * E2E config — adapted from scandihaven/apps/web/playwright.config.ts
- * for single-app home-financing (ModFii).
+ * for this single-app supply chain management clone.
  *
- * Requires a migrated+seeded Postgres (see `npm run db:setup`) and a
- * production build (`npm run build`) — `webServer` runs `next start`
- * (not `next dev`) to validate the shipped artifact, mirroring scandihaven's
- * 2026-09-10 audit finding that dev HMR hydration diverged from prod.
+ * Requires a pushed+seeded SQLite database (`bun run db:push` + `bun run
+ * db:seed`) and a production build (`bun run build`) — `webServer` runs
+ * `next start` (not `next dev`) on port 3002 to validate the shipped
+ * artifact, mirroring scandihaven's 2026-09-10 audit finding that dev
+ * HMR hydration can diverge from prod.
+ *
+ * Projects: chromium (default gate) and webkit (needs system libs; skip
+ * with `npx playwright test --project=chromium` where webkit deps are
+ * unavailable).
  *
  * Env:
- *   E2E_PORT     — port for webServer (default 3000)
+ *   E2E_PORT     — port for webServer (default 3002)
  *   E2E_BASE_URL — full base URL to reuse an external server (CI: set to reuse)
  */
 const PORT = Number(process.env.E2E_PORT ?? 3002);

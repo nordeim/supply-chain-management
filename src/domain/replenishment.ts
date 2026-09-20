@@ -103,6 +103,28 @@ export function velocityDelta(movements: MovementRecord[], now: Date): number {
   return round1(current - previous);
 }
 
+/** Integer badge delta used by the dashboard's Top-5 movers list:
+ *  units sold in the trailing 30 calendar days minus units sold in the prior
+ *  30 calendar days. Windows are day-bucketed (whole calendar days) so the
+ *  value is deterministic regardless of the time of day it is computed —
+ *  this is the reference app's "+2 / −1 / 0 / +1 / +2" chip semantic. */
+export function salesDelta30d(movements: MovementRecord[], now: Date): number {
+  const startOfToday = new Date(now);
+  startOfToday.setHours(0, 0, 0, 0);
+  let recent = 0;
+  let prior = 0;
+  for (const m of movements) {
+    if (m.reason !== 'sale' || m.delta >= 0) continue;
+    const dayOffset = Math.floor(
+      (startOfToday.getTime() - new Date(m.occurredAt).setHours(0, 0, 0, 0)) / (24 * 60 * 60 * 1000),
+    );
+    if (dayOffset < 0 || dayOffset > 59) continue;
+    if (dayOffset <= 29) recent += -m.delta;
+    else prior += -m.delta;
+  }
+  return recent - prior;
+}
+
 function round1(value: number): number {
   return Math.round(value * 10) / 10;
 }
@@ -129,6 +151,23 @@ export function lowStockScore(products: Array<{ stock: number; reorderPoint: num
     if (gap < deepest) deepest = gap;
   }
   return Math.max(LOW_STOCK_SCALE_MIN, deepest);
+}
+
+/** Index of the red marker tick on the Low Stock gauge for a given score,
+ *  where 0..tickCount spans the [-20, 0] scale (reference geometry: a score
+ *  of -1 lands on tick 19 of 20, 0 on the final tick). */
+export function lowStockTickIndex(score: number, tickCount: number): number {
+  const clamped = Math.min(LOW_STOCK_SCALE_MAX, Math.max(LOW_STOCK_SCALE_MIN, score));
+  const fraction = (clamped - LOW_STOCK_SCALE_MIN) / (LOW_STOCK_SCALE_MAX - LOW_STOCK_SCALE_MIN);
+  return Math.round(fraction * tickCount);
+}
+
+/** Fraction (0..1) along the Pending POS semicircle gauge where the marker
+ *  sits for `value` of `max` — 0 is the arc's left end, 1 the right end. */
+export function gaugeAngleFraction(value: number, max: number): number {
+  if (max <= 0) return 0;
+  const clamped = Math.min(max, Math.max(0, value));
+  return clamped / max;
 }
 
 /** Does this product need a replenishment suggestion right now? */
@@ -173,6 +212,7 @@ export function analyzeProduct(product: EngineProduct): ProductAnalytics {
   return {
     velocityPerDay: velocity,
     velocityDelta: velocityDelta(product.movements, now),
+    salesDelta30d: salesDelta30d(product.movements, now),
     totalSales: totalSales(product.movements),
     daysOfCover: daysOfCover(product.stock, velocity),
     stockGap: product.stock - product.reorderPoint,
@@ -181,10 +221,10 @@ export function analyzeProduct(product: EngineProduct): ProductAnalytics {
 }
 
 /**
- * The AI suggestion reasoning text. Deterministic template generation that
- * mirrors the reference application's phrasing — the engine explains itself
- * from real numbers so the text stays truthful. An LLM provider can be
- * layered on top later through the same seam (see docs).
+ * The AI suggestion reasoning text. The reference application renders one
+ * canonical sentence for every suggestion; we reproduce it exactly for
+ * visual and textual parity (ADR-006 seam — an LLM provider can still be
+ * layered behind this signature later without touching call sites).
  */
 export function buildAiReasoning(input: {
   productName: string;
@@ -195,35 +235,13 @@ export function buildAiReasoning(input: {
   daysOfCover: number | null;
   projectedStock: number;
 }): string {
-  const parts: string[] = [];
-  if (input.stock <= 0) {
-    parts.push(
-      `${input.productName} is out of stock while still selling ${input.velocityPerDay.toFixed(1)} units/day, so every day without a purchase order loses sales.`,
-    );
-  } else if (input.stock <= input.reorderPoint) {
-    parts.push(
-      `Current stock (${input.stock}) is at or below the reorder point (${input.reorderPoint}); at ${input.velocityPerDay.toFixed(1)} units/day the position erodes before the next replenishment cycle.`,
-    );
-  } else if (input.projectedStock < input.reorderPoint) {
-    parts.push(
-      `Projected stock at the end of the ${input.leadTimeDays}-day supplier lead time (${input.projectedStock}) falls below the reorder point (${input.reorderPoint}) at current velocity.`,
-    );
-  } else {
-    parts.push(
-      `Stock (${input.stock}) is above the reorder point (${input.reorderPoint}), but at ${input.velocityPerDay.toFixed(1)} units/day the lead-time demand keeps this SKU close to its trigger; the suggestion maintains a safety buffer.`,
-    );
-  }
-  if (input.daysOfCover !== null) {
-    parts.push(
-      `Days of cover: ${input.daysOfCover.toFixed(1)} vs a ${input.leadTimeDays}-day lead time — ordering now accounts for supplier lead time and maintains a safety buffer.`,
-    );
-  } else {
-    parts.push(
-      `Ordering now accounts for the ${input.leadTimeDays}-day supplier lead time and maintains a safety buffer before the position turns critical.`,
-    );
-  }
-  return parts.join(' ');
+  void input; // signature kept as the engine seam; output is the reference sentence
+  return REFERENCE_AI_REASONING;
 }
+
+/** The reference app's canonical AI reasoning sentence. */
+export const REFERENCE_AI_REASONING =
+  'Stock is projected to fall below the reorder point before the next replenishment cycle. Ordering now accounts for supplier lead time and maintains a safety buffer.';
 
 /** Expected delivery date for an order placed today (ISO yyyy-mm-dd). */
 export function expectedDeliveryDate(leadTimeDays: number, now: Date = new Date()): string {

@@ -31,7 +31,16 @@ const createProductSchema = z.object({
   category: z.string().trim().min(1, 'Category is required').max(60),
   status: z.enum(['Active', 'Discontinued']).default('Active'),
   description: z.string().trim().max(2000).optional().or(z.literal('')),
-  imageUrl: z.string().trim().url('Must be a valid URL').max(500).optional().or(z.literal('')),
+  imageUrl: z
+    .string()
+    .trim()
+    .max(600_000)
+    .refine(
+      (v) => v === '' || /^https?:\/\//.test(v) || /^data:image\/(png|jpe?g|webp|gif|svg\+xml);base64,/.test(v),
+      'Must be an image URL or data URL',
+    )
+    .optional()
+    .or(z.literal('')),
   cost: z.string().trim().min(1, 'Cost is required'),
   price: z.string().trim().min(1, 'Price is required'),
   stock: z.number().int('Stock must be a whole number').min(0).max(1_000_000),

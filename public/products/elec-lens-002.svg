@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" role="img" aria-label="35mm f1.8 Prime Lens">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fbf3ec"/>
+      <stop offset="1" stop-color="#f3ddcd"/>
+    </linearGradient>
+    <linearGradient id="barrel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#444"/>
+      <stop offset="1" stop-color="#191919"/>
+    </linearGradient>
+  </defs>
+  <rect width="400" height="300" fill="url(#bg)"/>
+  <circle cx="200" cy="150" r="82" fill="#ffffff" opacity="0.5"/>
+  <g transform="translate(200 150)">
+    <rect x="-52" y="-66" width="104" height="132" rx="24" fill="url(#barrel)"/>
+    <rect x="-52" y="-66" width="104" height="32" rx="15" fill="#000" opacity="0.3"/>
+    <rect x="-44" y="-28" width="88" height="8" rx="4" fill="#ff9000" opacity="0.9"/>
+    <rect x="-44" y="24" width="88" height="8" rx="4" fill="#5a5a5a"/>
+    <circle cx="0" cy="2" r="31" fill="#0b0b0b"/>
+    <circle cx="0" cy="2" r="25" fill="#10273f"/>
+    <circle cx="0" cy="2" r="17" fill="#091c30"/>
+    <circle cx="-7" cy="-5" r="5" fill="#a5dcff" opacity="0.9"/>
+    <rect x="-24" y="54" width="48" height="11" rx="5" fill="#ff9000" opacity="0.85"/>
+  </g>
+  <text x="200" y="272" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="13" fill="#6b7280" letter-spacing="2">ELEC-LENS-002</text>
+</svg>

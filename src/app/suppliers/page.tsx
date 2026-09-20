@@ -1,4 +1,5 @@
 import { Star } from 'lucide-react';
+import Link from 'next/link';
 import { listSuppliers } from '@/server/queries';
 
 export const dynamic = 'force-dynamic';
@@ -12,7 +13,7 @@ function StarRating({ rating }: { rating: number }) {
   );
 }
 
-/** Suppliers — partner cards with rating, contact, terms, and lead time. */
+/** Suppliers — partner scorecard cards; each card opens the supplier detail. */
 export default async function SuppliersPage() {
   const suppliers = await listSuppliers();
 
@@ -26,34 +27,37 @@ export default async function SuppliersPage() {
       </div>
 
       {suppliers.length === 0 ? (
-        <p className="rounded-2xl bg-[#f3f4f6] p-6 text-sm text-muted-foreground">No suppliers yet.</p>
+        <p className="rounded-[32px] bg-white p-6 text-sm text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+          No suppliers yet.
+        </p>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
           {suppliers.map((supplier) => (
-            <article key={supplier.id} className="rounded-2xl bg-[#f3f4f6] p-5">
+            <Link
+              key={supplier.id}
+              href={`/suppliers/${supplier.id}`}
+              className="block rounded-[32px] bg-white p-6 transition-transform hover:-translate-y-0.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+            >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <StarRating rating={supplier.rating} />
-                <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-[#374151]">
+                <span className="rounded-full bg-secondary px-3 py-1 text-xs font-semibold text-[#343434]">
                   {supplier.paymentTerms}
                 </span>
               </div>
               <h2 className="mt-3 text-lg font-bold">{supplier.name}</h2>
               <div className="mt-3 space-y-1.5 text-sm">
-                <p className="text-[#374151]">
+                <p className="text-[#343434]">
                   <span className="text-muted-foreground">Contact: </span>
                   {supplier.contactName}
                 </p>
-                <a
-                  href={`mailto:${supplier.email}`}
-                  className="block truncate font-medium text-[#374151] underline-offset-2 hover:underline"
-                >
+                <span className="block truncate font-medium text-[#343434] underline-offset-2">
                   {supplier.email}
-                </a>
+                </span>
                 <p className="text-muted-foreground">
-                  {supplier.productCount} {supplier.productCount === 1 ? 'product' : 'products'} · {supplier.leadTimeDays}-day lead time
+                  {supplier.productCount} {supplier.productCount === 1 ? 'product' : 'products'}
                 </p>
               </div>
-            </article>
+            </Link>
           ))}
         </div>
       )}

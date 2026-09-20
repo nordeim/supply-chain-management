@@ -44,6 +44,7 @@ interface LedgerSpec {
   totalSales: number; // lifetime sales units
   restocks: ReadonlyArray<{ daysAgo: number; qty: number }>;
   targetStock: number; // stock that must remain today
+  recentDelta?: number; // sales in last 30d minus prior 30d (movers badge)
 }
 
 interface LedgerMovement {
@@ -70,12 +71,66 @@ function dailySalesPattern(days: number, totalSales: number): number[] {
   return pattern;
 }
 
+/** Adjust the daily-sales pattern so salesDelta30d lands EXACTLY on the
+ *  reference app's mover-badge values (+2/−1/0/+1/+2). Two mechanisms:
+ *  - a cross-window move (prior→recent or recent→prior) shifts the delta by
+ *    ±2 (one side gains, the other loses a unit);
+ *  - an odd remainder is closed by moving a single unit between the region
+ *    outside the 60-day horizon and the recent window (delta ±1).
+ *  Total sales and the ending stock never change; the balancing loop in
+ *  buildLedger still validates that stock never dips below zero. */
+function applyRecentDelta(pattern: number[], targetDelta: number): number[] {
+  if (pattern.length < 62) return pattern;
+  const days = pattern.length;
+  const recentLo = days - 30; // pattern index of dayOffset 29
+  const priorLo = days - 60; // pattern index of dayOffset 59
+  const sum = (lo: number, hi: number): number => {
+    let s = 0;
+    for (let i = lo; i <= hi; i += 1) s += pattern[i] ?? 0;
+    return s;
+  };
+  const current = sum(recentLo, days - 1) - sum(priorLo, recentLo - 1);
+  let needed = targetDelta - current;
+
+  const moveOne = (fromLo: number, fromHi: number, toLo: number, toHi: number): boolean => {
+    let src = -1;
+    for (let i = fromLo; i <= fromHi && src < 0; i += 1) if ((pattern[i] ?? 0) > 0) src = i;
+    if (src < 0) return false;
+    pattern[src]! -= 1;
+    let tgt = toHi;
+    while (tgt > toLo && (pattern[tgt] ?? 0) === 0) tgt -= 1;
+    pattern[tgt]! += 1;
+    return true;
+  };
+
+  // Even part: cross-window moves (each worth ±2 of delta).
+  const cross = Math.trunc(needed / 2);
+  for (let k = 0; k < Math.abs(cross); k += 1) {
+    const moved =
+      cross > 0
+        ? moveOne(priorLo, recentLo - 1, recentLo, days - 1)
+        : moveOne(recentLo, days - 1, priorLo, recentLo - 1);
+    if (!moved) break;
+    needed -= cross > 0 ? 2 : -2;
+  }
+  // Odd remainder: one unit between outside-60 and the recent window (±1).
+  if (needed > 0) {
+    if (moveOne(0, days - 61, recentLo, days - 1)) needed -= 1;
+  } else if (needed < 0) {
+    if (moveOne(recentLo, days - 1, 0, days - 61)) needed += 1;
+  }
+  return pattern;
+}
+
 /** Build a ledger that ends at targetStock and never dips below zero.
  *  Self-balancing: when the simulated running stock dips negative, the
  *  initial count is raised and the final restock reduced by the same amount,
  *  preserving the exact ending position. */
 function buildLedger(spec: LedgerSpec): LedgerMovement[] {
-  const pattern = dailySalesPattern(spec.historyDays, spec.totalSales);
+  const pattern = applyRecentDelta(
+    dailySalesPattern(spec.historyDays, spec.totalSales),
+    spec.recentDelta ?? 0,
+  );
   // Deep-copy so the self-balancing mutation below never touches the frozen
   // literal seed data.
   const restocks = spec.restocks.map((r) => ({ daysAgo: r.daysAgo, qty: r.qty })).sort((a, b) => b.daysAgo - a.daysAgo); // oldest first
@@ -151,6 +206,7 @@ const SUPPLIERS = [
     paymentTerms: 'Net 30',
     leadTimeDays: 14,
     notes: 'Broad-line electronics distributor; primary source for camera bodies.',
+    createdDaysAgo: 64, // oldest -> last card
   },
   {
     name: 'Nordic Supply Co.',
@@ -159,7 +215,8 @@ const SUPPLIERS = [
     rating: 4,
     paymentTerms: 'Net 45',
     leadTimeDays: 14,
-    notes: 'Specialist professional photo equipment importer.',
+    notes: 'Scandinavian distributor',
+    createdDaysAgo: 61, // newest -> first card (reference order)
   },
   {
     name: 'Pacific Rim Traders',
@@ -169,6 +226,7 @@ const SUPPLIERS = [
     paymentTerms: 'Net 30',
     leadTimeDays: 10,
     notes: 'Optics trading house; competitive on prime lenses.',
+    createdDaysAgo: 62,
   },
   {
     name: 'Atlas Logistics',
@@ -178,6 +236,7 @@ const SUPPLIERS = [
     paymentTerms: 'Net 60',
     leadTimeDays: 10,
     notes: 'Budget freight forwarder; frequent delays.',
+    createdDaysAgo: 63,
   },
 ] as const;
 
@@ -187,75 +246,80 @@ const PRODUCTS = [
     sku: 'ELEC-CAM-001',
     category: 'Electronics',
     costMinor: 232000,
-    priceMinor: 289900,
+    priceMinor: 240000,
     stock: 8,
     reorderPoint: 5,
-    reorderQty: 50,
+    reorderQty: 5,
     leadTimeDays: 7,
     location: 'Warehouse A',
     supplier: 'Electronics Direct',
+    imageUrl: '/products/elec-cam-001.svg',
     description: 'Full-frame mirrorless camera with 24MP sensor, in-body stabilization, and 4K60 video.',
-    ledger: { historyDays: 150, totalSales: 225, restocks: [{ daysAgo: 140, qty: 50 }, { daysAgo: 85, qty: 50 }, { daysAgo: 40, qty: 50 }], targetStock: 8 },
+    ledger: { historyDays: 150, totalSales: 225, restocks: [{ daysAgo: 140, qty: 50 }, { daysAgo: 85, qty: 50 }, { daysAgo: 40, qty: 50 }], targetStock: 8, recentDelta: 2 },
   },
   {
     name: 'APS-C Sensor Mirrorless Camera',
     sku: 'ELEC-CAM-002',
     category: 'Electronics',
     costMinor: 142000,
-    priceMinor: 176900,
+    priceMinor: 145000,
     stock: 15,
     reorderPoint: 5,
-    reorderQty: 50,
+    reorderQty: 10,
     leadTimeDays: 7,
     location: 'Warehouse A',
     supplier: 'Electronics Direct',
+    imageUrl: '/products/elec-cam-002.svg',
     description: 'Compact APS-C mirrorless body with hybrid autofocus and dual SD slots.',
-    ledger: { historyDays: 162, totalSales: 195, restocks: [{ daysAgo: 150, qty: 60 }, { daysAgo: 70, qty: 60 }, { daysAgo: 25, qty: 55 }], targetStock: 15 },
+    ledger: { historyDays: 162, totalSales: 195, restocks: [{ daysAgo: 150, qty: 60 }, { daysAgo: 70, qty: 60 }, { daysAgo: 25, qty: 55 }], targetStock: 15, recentDelta: -1 },
   },
   {
     name: 'Full-Frame sensor Mirrorless Professional Camera',
     sku: 'ELEC-CAM-003',
     category: 'Electronics',
-    costMinor: 180000,
-    priceMinor: 224900,
+    costMinor: 305000,
+    priceMinor: 320000,
     stock: 15,
     reorderPoint: 5,
-    reorderQty: 50,
+    reorderQty: 10,
     leadTimeDays: 7,
     location: 'Warehouse B',
     supplier: 'Nordic Supply Co.',
+    imageUrl: '/products/elec-cam-003.svg',
     description: 'Professional full-frame body with 45MP sensor, weather sealing, and dual processors.',
-    ledger: { historyDays: 135, totalSales: 54, restocks: [{ daysAgo: 70, qty: 39 }], targetStock: 15 },
+    ledger: { historyDays: 135, totalSales: 54, restocks: [{ daysAgo: 70, qty: 39 }], targetStock: 15, recentDelta: 2 },
   },
   {
     name: '50mm f1.8 Prime Lens',
     sku: 'ELEC-LENS-001',
     category: 'Electronics',
-    costMinor: 28000,
-    priceMinor: 34900,
+    costMinor: 162000,
+    priceMinor: 165000,
     stock: 0,
     reorderPoint: 10,
-    reorderQty: 50,
+    reorderQty: 20,
     leadTimeDays: 7,
     location: 'Warehouse A',
     supplier: 'Atlas Logistics',
+    imageUrl: '/products/elec-lens-001.svg',
     description: 'Lightweight 50mm f/1.8 prime lens; the workhorse standard focal length.',
-    ledger: { historyDays: 137, totalSales: 110, restocks: [{ daysAgo: 120, qty: 60 }, { daysAgo: 30, qty: 20 }], targetStock: 0 },
+    ledger: { historyDays: 137, totalSales: 110, restocks: [{ daysAgo: 120, qty: 60 }, { daysAgo: 30, qty: 20 }], targetStock: 0, recentDelta: 0 },
   },
   {
     name: '35mm f1.8 Prime Lens',
     sku: 'ELEC-LENS-002',
     category: 'Electronics',
-    costMinor: 26000,
-    priceMinor: 32900,
+    costMinor: 220000,
+    priceMinor: 225000,
     stock: 25,
     reorderPoint: 10,
-    reorderQty: 50,
+    reorderQty: 20,
     leadTimeDays: 7,
     location: 'Warehouse A',
     supplier: 'Pacific Rim Traders',
+    imageUrl: '/products/elec-lens-002.svg',
     description: 'Versatile 35mm f/1.8 prime ideal for street and documentary work.',
-    ledger: { historyDays: 120, totalSales: 84, restocks: [{ daysAgo: 100, qty: 50 }, { daysAgo: 20, qty: 34 }], targetStock: 25 },
+    ledger: { historyDays: 120, totalSales: 84, restocks: [{ daysAgo: 100, qty: 50 }, { daysAgo: 20, qty: 34 }], targetStock: 25, recentDelta: 1 },
   },
   {
     name: '85mm f2.8 Prime lens',
@@ -269,28 +333,30 @@ const PRODUCTS = [
     leadTimeDays: 7,
     location: 'Warehouse C',
     supplier: 'Electronics Direct',
+    imageUrl: '/products/elec-lens-003.svg',
     description: 'Professional 85mm f/2.8 prime lens with fast autofocus and superior low-light performance.',
-    ledger: { historyDays: 90, totalSales: 0, restocks: [], targetStock: 25 },
+    ledger: { historyDays: 90, totalSales: 0, restocks: [], targetStock: 25, recentDelta: 0 },
   },
 ] as const;
 
 const PURCHASE_ORDERS = [
-  // orderNumber, sku, supplier, qty, unitCostMinor, status, daysAgo, reasoningKey
-  { orderNumber: '2AF134', sku: 'ELEC-LENS-001', supplier: 'Electronics Direct', quantity: 25, unitCostMinor: 28000, status: 'Approved', daysAgo: 10 },
-  { orderNumber: '2AF135', sku: 'ELEC-LENS-002', supplier: 'Electronics Direct', quantity: 10, unitCostMinor: 26000, status: 'Approved', daysAgo: 10 },
-  { orderNumber: '2AF136', sku: 'ELEC-CAM-003', supplier: 'Electronics Direct', quantity: 15, unitCostMinor: 180000, status: 'Approved', daysAgo: 10 },
-  { orderNumber: '2AF140', sku: 'ELEC-CAM-003', supplier: 'Electronics Direct', quantity: 50, unitCostMinor: 180000, status: 'Cancelled', daysAgo: 10 },
-  { orderNumber: '2AF138', sku: 'ELEC-CAM-001', supplier: 'Electronics Direct', quantity: 50, unitCostMinor: 232000, status: 'Suggested', daysAgo: 6 },
-  { orderNumber: '2AF139', sku: 'ELEC-LENS-001', supplier: 'Electronics Direct', quantity: 50, unitCostMinor: 28000, status: 'Suggested', daysAgo: 6 },
-  { orderNumber: '2AF13A', sku: 'ELEC-LENS-002', supplier: 'Electronics Direct', quantity: 50, unitCostMinor: 26000, status: 'Suggested', daysAgo: 6 },
-  { orderNumber: '2AF13B', sku: 'ELEC-CAM-003', supplier: 'Electronics Direct', quantity: 50, unitCostMinor: 180000, status: 'Suggested', daysAgo: 6 },
-  { orderNumber: '2AF13C', sku: 'ELEC-CAM-002', supplier: 'Electronics Direct', quantity: 50, unitCostMinor: 142000, status: 'Suggested', daysAgo: 6 },
-  { orderNumber: '2AF13D', sku: 'ELEC-CAM-001', supplier: 'Electronics Direct', quantity: 50, unitCostMinor: 232000, status: 'Suggested', daysAgo: 6 },
-  { orderNumber: '2AF13E', sku: 'ELEC-LENS-001', supplier: 'Electronics Direct', quantity: 50, unitCostMinor: 28000, status: 'Suggested', daysAgo: 6 },
-  { orderNumber: '2AF13F', sku: 'ELEC-LENS-002', supplier: 'Electronics Direct', quantity: 50, unitCostMinor: 26000, status: 'Suggested', daysAgo: 6 },
-  { orderNumber: '2AF137', sku: 'ELEC-CAM-002', supplier: 'Electronics Direct', quantity: 50, unitCostMinor: 142000, status: 'Suggested', daysAgo: 6 },
-  { orderNumber: '2AF141', sku: 'ELEC-CAM-002', supplier: 'Electronics Direct', quantity: 50, unitCostMinor: 142000, status: 'Suggested', daysAgo: 6 },
-  { orderNumber: '2AF142', sku: 'ELEC-CAM-001', supplier: 'Electronics Direct', quantity: 50, unitCostMinor: 232000, status: 'Suggested', daysAgo: 6 },
+  // List order = the reference app's procurement row order (createdAt desc).
+  // orderNumber, sku, supplier, qty, unitCostMinor, status, orderDaysAgo, createdDaysAgo
+  { orderNumber: '2AF140', sku: 'ELEC-CAM-003', supplier: 'Electronics Direct', quantity: 50, unitCostMinor: 180000, status: 'Cancelled', daysAgo: 70, createdDaysAgo: 40 },
+  { orderNumber: '2AF134', sku: 'ELEC-LENS-001', supplier: 'Electronics Direct', quantity: 25, unitCostMinor: 28000, status: 'Approved', daysAgo: 70, createdDaysAgo: 41 },
+  { orderNumber: '2AF136', sku: 'ELEC-CAM-003', supplier: 'Electronics Direct', quantity: 15, unitCostMinor: 180000, status: 'Approved', daysAgo: 70, createdDaysAgo: 42 },
+  { orderNumber: '2AF138', sku: 'ELEC-CAM-001', supplier: 'Electronics Direct', quantity: 50, unitCostMinor: 232000, status: 'Suggested', daysAgo: 76, createdDaysAgo: 43 },
+  { orderNumber: '2AF13E', sku: 'ELEC-LENS-001', supplier: 'Electronics Direct', quantity: 50, unitCostMinor: 28000, status: 'Suggested', daysAgo: 76, createdDaysAgo: 44 },
+  { orderNumber: '2AF13B', sku: 'ELEC-CAM-003', supplier: 'Electronics Direct', quantity: 50, unitCostMinor: 180000, status: 'Suggested', daysAgo: 76, createdDaysAgo: 45 },
+  { orderNumber: '2AF13C', sku: 'ELEC-CAM-002', supplier: 'Electronics Direct', quantity: 50, unitCostMinor: 142000, status: 'Suggested', daysAgo: 76, createdDaysAgo: 46 },
+  { orderNumber: '2AF139', sku: 'ELEC-LENS-001', supplier: 'Electronics Direct', quantity: 50, unitCostMinor: 28000, status: 'Suggested', daysAgo: 76, createdDaysAgo: 47 },
+  { orderNumber: '2AF142', sku: 'ELEC-CAM-001', supplier: 'Electronics Direct', quantity: 50, unitCostMinor: 232000, status: 'Suggested', daysAgo: 76, createdDaysAgo: 48 },
+  { orderNumber: '2AF141', sku: 'ELEC-CAM-002', supplier: 'Electronics Direct', quantity: 50, unitCostMinor: 142000, status: 'Suggested', daysAgo: 76, createdDaysAgo: 49 },
+  { orderNumber: '2AF13D', sku: 'ELEC-CAM-001', supplier: 'Electronics Direct', quantity: 50, unitCostMinor: 232000, status: 'Suggested', daysAgo: 76, createdDaysAgo: 50 },
+  { orderNumber: '2AF13F', sku: 'ELEC-LENS-002', supplier: 'Electronics Direct', quantity: 50, unitCostMinor: 26000, status: 'Suggested', daysAgo: 76, createdDaysAgo: 51 },
+  { orderNumber: '2AF135', sku: 'ELEC-LENS-002', supplier: 'Electronics Direct', quantity: 10, unitCostMinor: 26000, status: 'Approved', daysAgo: 70, createdDaysAgo: 52 },
+  { orderNumber: '2AF13A', sku: 'ELEC-LENS-002', supplier: 'Electronics Direct', quantity: 50, unitCostMinor: 26000, status: 'Suggested', daysAgo: 76, createdDaysAgo: 53 },
+  { orderNumber: '2AF137', sku: 'ELEC-CAM-002', supplier: 'Electronics Direct', quantity: 50, unitCostMinor: 142000, status: 'Suggested', daysAgo: 76, createdDaysAgo: 54 },
 ] as const;
 
 const MARKET_TRENDS = [
@@ -309,33 +375,39 @@ const MARKET_TRENDS = [
 async function main(): Promise<void> {
   console.log('Seeding supply-chain-management database…');
 
-  // 1. Suppliers (natural key: name)
+  // 1. Suppliers (natural key: name) — createdAt seeded for the reference
+  //    card order (Nordic newest first, Electronics Direct oldest last).
   const supplierIdByName = new Map<string, string>();
   for (const s of SUPPLIERS) {
+    const { createdDaysAgo: supplierCreatedDaysAgo, ...supplierFields } = s;
+    const createdAt = daysAgo(supplierCreatedDaysAgo, 9);
     const record = await db.supplier.upsert({
       where: { name: s.name },
-      update: {
-        contactName: s.contactName,
-        email: s.email,
-        rating: s.rating,
-        paymentTerms: s.paymentTerms,
-        leadTimeDays: s.leadTimeDays,
-        notes: s.notes,
-      },
-      create: { ...s },
+      update: { ...supplierFields, createdAt },
+      create: { ...supplierFields, createdAt },
     });
     supplierIdByName.set(s.name, record.id);
   }
   console.log(`  suppliers: ${supplierIdByName.size}`);
 
-  // 2. Products (natural key: sku) + movement ledger
+  // 2. Products (natural key: sku) + movement ledger. createdAt is seeded
+  //    so the catalog lists newest-first in the reference app's exact row order.
+  const PRODUCT_CREATED_DAYS_AGO: Record<string, number> = {
+    'ELEC-LENS-003': 50, // newest -> first row
+    'ELEC-LENS-001': 51,
+    'ELEC-LENS-002': 52,
+    'ELEC-CAM-003': 53,
+    'ELEC-CAM-002': 54,
+    'ELEC-CAM-001': 55, // oldest -> last row
+  };
   const productIdBySku = new Map<string, string>();
   for (const p of PRODUCTS) {
     const { ledger, supplier, ...productFields } = p;
+    const createdAt = daysAgo(PRODUCT_CREATED_DAYS_AGO[p.sku] ?? 60, 9);
     const record = await db.product.upsert({
       where: { sku: p.sku },
-      update: { ...productFields, supplierId: supplierIdByName.get(supplier) },
-      create: { ...productFields, supplierId: supplierIdByName.get(supplier) },
+      update: { ...productFields, supplierId: supplierIdByName.get(supplier), createdAt },
+      create: { ...productFields, supplierId: supplierIdByName.get(supplier), createdAt },
     });
     productIdBySku.set(p.sku, record.id);
 
@@ -370,10 +442,13 @@ async function main(): Promise<void> {
       include: { movements: true },
     });
     const supplier = await db.supplier.findUniqueOrThrow({ where: { id: supplierId } });
+    const orderDate = daysAgo(po.daysAgo, 9);
+    // Reference parity: Suggested orders display their order date as the
+    // Delivery date (2026-07-06); approved history lands order date + lead time.
     const delivery =
       po.status === 'Suggested'
-        ? new Date(now.getTime() + supplier.leadTimeDays * DAY_MS)
-        : new Date(now.getTime() - (po.daysAgo - supplier.leadTimeDays) * DAY_MS);
+        ? orderDate
+        : new Date(orderDate.getTime() + supplier.leadTimeDays * DAY_MS);
 
     let aiReasoning: string | null = null;
     if (po.status === 'Suggested') {
@@ -412,8 +487,9 @@ async function main(): Promise<void> {
         unitCostMinor: po.unitCostMinor,
         status: po.status,
         aiReasoning,
-        orderDate: daysAgo(po.daysAgo, 9),
+        orderDate,
         expectedDelivery: delivery,
+        createdAt: daysAgo(po.createdDaysAgo, 9),
       },
       create: {
         orderNumber: po.orderNumber,
@@ -423,8 +499,9 @@ async function main(): Promise<void> {
         unitCostMinor: po.unitCostMinor,
         status: po.status,
         aiReasoning,
-        orderDate: daysAgo(po.daysAgo, 9),
+        orderDate,
         expectedDelivery: delivery,
+        createdAt: daysAgo(po.createdDaysAgo, 9),
       },
     });
   }

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { ImagePlus } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -40,6 +41,7 @@ export function NewProductDialog({
     category: '',
     status: 'Active' as 'Active' | 'Discontinued',
     description: '',
+    imageUrl: '',
     cost: '',
     price: '',
     stock: '0',
@@ -73,6 +75,7 @@ export function NewProductDialog({
       category: form.category,
       status: form.status,
       description: form.description,
+      imageUrl: form.imageUrl,
       cost: form.cost,
       price: form.price,
       stock: Number(form.stock || '0'),
@@ -87,12 +90,26 @@ export function NewProductDialog({
     if (result.ok) {
       toast({ title: 'Product created', description: `${form.name} (${form.sku}) is now in the catalog.` });
       onOpenChange(false);
-      setForm((f) => ({ ...f, name: '', sku: '', description: '', cost: '', price: '', location: '' }));
+      setForm((f) => ({ ...f, name: '', sku: '', description: '', cost: '', price: '', location: '', imageUrl: '' }));
       router.push(`/products/${result.data.id}`);
       router.refresh();
     } else {
       toast({ title: 'Could not create product', description: result.message, variant: 'destructive' });
     }
+  }
+
+  function handleImageSelected(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (file.size > 300_000) {
+      toast({ title: 'Image too large', description: 'Please choose an image under 300 KB.', variant: 'destructive' });
+      event.target.value = '';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => set('imageUrl', String(reader.result ?? ''));
+    reader.readAsDataURL(file);
+    event.target.value = '';
   }
 
   const numberField = (key: 'stock' | 'reorderPoint' | 'reorderQty' | 'leadTimeDays', label: string, step = '1') => (
@@ -152,21 +169,45 @@ export function NewProductDialog({
             <Textarea id="np-description" rows={2} value={form.description} onChange={(e) => set('description', e.target.value)} placeholder="Short product description" />
           </div>
 
+          <div className="grid gap-1.5">
+            <Label htmlFor="np-image">Image</Label>
+            <label
+              htmlFor="np-image"
+              className="flex h-24 cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-[#dfdfdf] bg-[#efefef] text-sm text-muted-foreground transition-colors hover:bg-secondary"
+            >
+              {form.imageUrl ? (
+                <img src={form.imageUrl} alt="Selected product" className="h-full w-full rounded-xl object-cover" />
+              ) : (
+                <>
+                  <ImagePlus className="h-5 w-5" aria-hidden />
+                  Click to upload
+                </>
+              )}
+            </label>
+            <input
+              id="np-image"
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+              className="sr-only"
+              onChange={handleImageSelected}
+            />
+          </div>
+
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-1.5">
-              <Label htmlFor="np-cost">Cost ($) *</Label>
-              <Input id="np-cost" required inputMode="decimal" value={form.cost} onChange={(e) => set('cost', e.target.value)} placeholder="2480.00" />
+              <Label htmlFor="np-cost">Units Cost *</Label>
+              <Input id="np-cost" required inputMode="decimal" value={form.cost} onChange={(e) => set('cost', e.target.value)} placeholder="0.00" />
             </div>
             <div className="grid gap-1.5">
-              <Label htmlFor="np-price">Price ($) *</Label>
-              <Input id="np-price" required inputMode="decimal" value={form.price} onChange={(e) => set('price', e.target.value)} placeholder="2580.00" />
+              <Label htmlFor="np-price">Units Price *</Label>
+              <Input id="np-price" required inputMode="decimal" value={form.price} onChange={(e) => set('price', e.target.value)} placeholder="0.00" />
             </div>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-4">
-            {numberField('stock', 'Stock')}
-            {numberField('reorderPoint', 'Reorder Point')}
-            {numberField('reorderQty', 'Reorder Qty')}
+            {numberField('stock', 'Current Stock')}
+            {numberField('reorderPoint', 'Reorder Pt.')}
+            {numberField('reorderQty', 'Reorder Qty.')}
             {numberField('leadTimeDays', 'Lead Time (Days)')}
           </div>
 

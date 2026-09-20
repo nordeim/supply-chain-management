@@ -65,7 +65,7 @@ export async function listProducts(search?: string, category?: string, status?: 
       ],
     },
     include: { supplier: true, movements: true },
-    orderBy: { name: 'asc' },
+    orderBy: { createdAt: 'desc' }, // reference row order (newest first)
   });
 
   const now = new Date();
@@ -101,7 +101,7 @@ export interface DashboardData {
     sku: string;
     velocityPerDay: number;
     totalSales: number;
-    velocityDelta: number;
+    salesDelta30d: number;
   }>;
   stockFeed: StockFeedItem[];
 }
@@ -110,26 +110,10 @@ export async function getDashboardData(): Promise<DashboardData> {
   const products = await db.product.findMany({ include: { supplier: true, movements: true } });
   const suggestedOrders = await db.purchaseOrder.findMany({
     where: { status: 'Suggested' },
-    include: { product: true },
+    include: { product: { include: { supplier: true } } },
+    orderBy: { createdAt: 'desc' }, // reference feed order (newest suggestion first)
   });
   const now = new Date();
-
-  // Map of the most recent suggested order per product (for the stock feed).
-  const latestSuggestionByProduct = new Map<
-    string,
-    { id: string; quantity: number; reasoning: string | null; createdAt: Date }
-  >();
-  for (const order of suggestedOrders) {
-    const existing = latestSuggestionByProduct.get(order.productId);
-    if (!existing || order.createdAt >= existing.createdAt) {
-      latestSuggestionByProduct.set(order.productId, {
-        id: order.id,
-        quantity: order.quantity,
-        reasoning: order.aiReasoning,
-        createdAt: order.createdAt,
-      });
-    }
-  }
 
   const analyticsByProduct = new Map<string, ProductAnalytics>();
   for (const p of products) {
@@ -159,41 +143,60 @@ export async function getDashboardData(): Promise<DashboardData> {
         sku: p.sku,
         velocityPerDay: a.velocityPerDay,
         totalSales: a.totalSales,
-        velocityDelta: a.velocityDelta,
+        salesDelta30d: a.salesDelta30d,
       };
     })
     .filter((p) => p.velocityPerDay > 0)
     .sort((a, b) => b.velocityPerDay - a.velocityPerDay)
     .slice(0, 5);
 
-  const stockFeed: StockFeedItem[] = products
-    .map((p) => {
-      const a = analyticsByProduct.get(p.id)!;
-      const suggestion = latestSuggestionByProduct.get(p.id) ?? null;
-      return {
-        productId: p.id,
-        productName: p.name,
-        sku: p.sku,
-        stock: p.stock,
-        reorderPoint: p.reorderPoint,
-        velocityPerDay: a.velocityPerDay,
-        outOfStock: p.stock <= 0,
-        supplierName: p.supplier?.name ?? null,
-        supplierLeadTimeDays: p.supplier?.leadTimeDays ?? null,
-        suggestionOrderId: suggestion?.id ?? null,
-        suggestedQty: suggestion?.quantity ?? null,
-        aiReasoning: suggestion?.reasoning ?? null,
-      };
-    })
-    .filter((item) => item.stock <= item.reorderPoint || item.suggestionOrderId !== null)
+  // Stock feed (reference semantics): one attention card per product at or
+  // below its reorder point (out-of-stock first), followed by one card per
+  // pending AI suggestion. Every card navigates to the product detail page.
+  const attentionFeed: StockFeedItem[] = products
+    .filter((p) => p.stock <= p.reorderPoint)
     .sort((a, b) => {
-      // Priority: out of stock first, then deepest stock gap, then velocity.
-      if (a.outOfStock !== b.outOfStock) return a.outOfStock ? -1 : 1;
+      if ((a.stock <= 0) !== (b.stock <= 0)) return a.stock <= 0 ? -1 : 1;
       const gapA = a.stock - a.reorderPoint;
       const gapB = b.stock - b.reorderPoint;
       if (gapA !== gapB) return gapA - gapB;
-      return b.velocityPerDay - a.velocityPerDay;
-    });
+      const va = analyticsByProduct.get(a.id)!.velocityPerDay;
+      const vb = analyticsByProduct.get(b.id)!.velocityPerDay;
+      return vb - va;
+    })
+    .map((p) => ({
+      kind: 'attention' as const,
+      productId: p.id,
+      productName: p.name,
+      sku: p.sku,
+      imageUrl: p.imageUrl,
+      outOfStock: p.stock <= 0,
+      velocityPerDay: analyticsByProduct.get(p.id)!.velocityPerDay,
+      reorderPoint: p.reorderPoint,
+      supplierName: p.supplier?.name ?? null,
+      supplierLeadTimeDays: p.supplier?.leadTimeDays ?? null,
+      suggestionOrderId: null,
+      suggestedQty: null,
+      aiReasoning: null,
+    }));
+
+  const suggestionFeed: StockFeedItem[] = suggestedOrders.map((o) => ({
+    kind: 'suggestion' as const,
+    productId: o.productId,
+    productName: o.product.name,
+    sku: o.product.sku,
+    imageUrl: o.product.imageUrl,
+    outOfStock: o.product.stock <= 0,
+    velocityPerDay: analyticsByProduct.get(o.productId)?.velocityPerDay ?? 0,
+    reorderPoint: o.product.reorderPoint,
+    supplierName: o.product.supplier?.name ?? null,
+    supplierLeadTimeDays: o.product.supplier?.leadTimeDays ?? null,
+    suggestionOrderId: o.id,
+    suggestedQty: o.quantity,
+    aiReasoning: o.aiReasoning,
+  }));
+
+  const stockFeed = [...attentionFeed, ...suggestionFeed];
 
   const inventoryValueSeries = buildLedgerDaySeries(
     products.map((p) => ({ costMinor: p.costMinor, movements: toMovementRecords(p.movements) })),
@@ -320,7 +323,7 @@ export async function listSuggestions(): Promise<SuggestionRow[]> {
   const orders = await db.purchaseOrder.findMany({
     where: { status: 'Suggested' },
     include: { product: true, supplier: true },
-    orderBy: { orderDate: 'desc' },
+    orderBy: { createdAt: 'desc' }, // reference row order
   });
   return orders.map((o) => ({
     orderId: o.id,
@@ -342,8 +345,10 @@ export interface PurchaseOrderRow {
   productId: string;
   productName: string;
   sku: string;
+  productCategory: string;
   supplierName: string;
   quantity: number;
+  unitCostMinor: number;
   totalCostMinor: number;
   orderDate: Date;
   status: string;
@@ -363,7 +368,7 @@ export async function listPurchaseOrders(search?: string, status?: string): Prom
       ],
     },
     include: { product: true, supplier: true },
-    orderBy: [{ orderDate: 'desc' }, { orderNumber: 'asc' }],
+    orderBy: { createdAt: 'desc' }, // reference row order (2AF140 first)
   });
   return orders.map((o) => ({
     id: o.id,
@@ -371,8 +376,10 @@ export async function listPurchaseOrders(search?: string, status?: string): Prom
     productId: o.productId,
     productName: o.product.name,
     sku: o.product.sku,
+    productCategory: o.product.category,
     supplierName: o.supplier.name,
     quantity: o.quantity,
+    unitCostMinor: o.unitCostMinor,
     totalCostMinor: o.unitCostMinor * o.quantity,
     orderDate: o.orderDate,
     status: o.status,
@@ -383,7 +390,7 @@ export async function listPurchaseOrders(search?: string, status?: string): Prom
 export async function listSuppliers(): Promise<SupplierView[]> {
   const suppliers = await db.supplier.findMany({
     include: { _count: { select: { products: true } } },
-    orderBy: { name: 'asc' },
+    orderBy: { createdAt: 'desc' }, // reference card order (Nordic first)
   });
   return suppliers.map((s) => ({
     id: s.id,
@@ -395,6 +402,82 @@ export async function listSuppliers(): Promise<SupplierView[]> {
     leadTimeDays: s.leadTimeDays,
     productCount: s._count.products,
   }));
+}
+
+export interface SupplierDetailData {
+  id: string;
+  name: string;
+  contactName: string;
+  email: string;
+  phone: string | null;
+  rating: number;
+  paymentTerms: string;
+  leadTimeDays: number;
+  notes: string | null;
+  productCount: number;
+  completedOrders: number;
+  totalPOs: number;
+  avgLeadTimeDays: number | null;
+  products: Array<{
+    id: string;
+    name: string;
+    stock: number;
+    status: string;
+  }>;
+  recentOrders: Array<{
+    id: string;
+    orderNumber: string;
+    status: string;
+    quantity: number;
+    totalCostMinor: number;
+    orderDate: Date;
+  }>;
+}
+
+export async function getSupplierDetail(id: string): Promise<SupplierDetailData | null> {
+  const supplier = await db.supplier.findUnique({
+    where: { id },
+    include: {
+      products: { orderBy: { createdAt: 'desc' } },
+      orders: { orderBy: { createdAt: 'desc' }, take: 5 },
+    },
+  });
+  if (!supplier) return null;
+
+  const totalPOs = await db.purchaseOrder.count({ where: { supplierId: id } });
+  const completedOrders = await db.purchaseOrder.count({
+    where: { supplierId: id, status: 'Delivered' },
+  });
+
+  return {
+    id: supplier.id,
+    name: supplier.name,
+    contactName: supplier.contactName,
+    email: supplier.email,
+    phone: supplier.phone,
+    rating: supplier.rating,
+    paymentTerms: supplier.paymentTerms,
+    leadTimeDays: supplier.leadTimeDays,
+    notes: supplier.notes,
+    productCount: supplier.products.length,
+    completedOrders,
+    totalPOs,
+    avgLeadTimeDays: supplier.leadTimeDays,
+    products: supplier.products.map((p) => ({
+      id: p.id,
+      name: p.name,
+      stock: p.stock,
+      status: p.stock > p.reorderPoint ? 'Healthy' : 'Low Stock',
+    })),
+    recentOrders: supplier.orders.map((o) => ({
+      id: o.id,
+      orderNumber: o.orderNumber,
+      status: o.status,
+      quantity: o.quantity,
+      totalCostMinor: o.unitCostMinor * o.quantity,
+      orderDate: o.orderDate,
+    })),
+  };
 }
 
 export interface MarketTrendsSummary {

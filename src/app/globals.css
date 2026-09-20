@@ -46,41 +46,42 @@
 
 :root {
   --radius: 1rem;
-  /* Brand palette cloned from the reference application:
-     orange primary with black foreground text, light-gray app background,
-     white cards, red alert accents. */
-  --background: #f3f4f6;
-  --foreground: #111827;
+  /* Brand palette cloned from the reference application (measured live):
+     primary orange #FF9000 (rgb 255,144,0), app background #EFEFEF,
+     inactive pill #DFDFDF, black KPI tile #111111, red alert #F13A15,
+     white cards with 32px radius. */
+  --background: #efefef;
+  --foreground: #111111;
   --card: #ffffff;
-  --card-foreground: #111827;
+  --card-foreground: #111111;
   --popover: #ffffff;
-  --popover-foreground: #111827;
-  --primary: #f97316;
-  --primary-foreground: #111111;
-  --secondary: #e5e7eb;
-  --secondary-foreground: #111827;
-  --muted: #f3f4f6;
-  --muted-foreground: #6b7280;
-  --accent: #f97316;
-  --accent-foreground: #111111;
-  --destructive: #ef4444;
+  --popover-foreground: #111111;
+  --primary: #ff9000;
+  --primary-foreground: #0f1729;
+  --secondary: #dfdfdf;
+  --secondary-foreground: #0f1729;
+  --muted: #efefef;
+  --muted-foreground: #343434;
+  --accent: #ff9000;
+  --accent-foreground: #0f1729;
+  --destructive: #f13a15;
   --success: #22c55e;
-  --border: #e5e7eb;
-  --input: #e5e7eb;
-  --ring: #f97316;
-  --chart-1: #f97316;
+  --border: #dfdfdf;
+  --input: #dfdfdf;
+  --ring: #ff9000;
+  --chart-1: #ff9000;
   --chart-2: #22c55e;
-  --chart-3: #ef4444;
-  --chart-4: #111827;
+  --chart-3: #f13a15;
+  --chart-4: #111111;
   --chart-5: #9ca3af;
-  --sidebar: #f3f4f6;
-  --sidebar-foreground: #111827;
-  --sidebar-primary: #f97316;
-  --sidebar-primary-foreground: #111111;
+  --sidebar: #efefef;
+  --sidebar-foreground: #0f1729;
+  --sidebar-primary: #ff9000;
+  --sidebar-primary-foreground: #0f1729;
   --sidebar-accent: #ffffff;
-  --sidebar-accent-foreground: #111827;
-  --sidebar-border: #e5e7eb;
-  --sidebar-ring: #f97316;
+  --sidebar-accent-foreground: #0f1729;
+  --sidebar-border: #dfdfdf;
+  --sidebar-ring: #ff9000;
 }
 
 .dark {

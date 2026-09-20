@@ -35,6 +35,7 @@ export interface ForecastPoint {
 export interface ProductAnalytics {
   velocityPerDay: number; // trailing window average units/day
   velocityDelta: number; // change vs previous window, units/day (signed)
+  salesDelta30d: number; // units sold last 30d minus prior 30d (movers badge)
   totalSales: number; // lifetime sales units from the movement ledger
   daysOfCover: number | null; // stock / velocity; null when velocity is 0
   stockGap: number; // stock - reorderPoint (signed)
@@ -63,15 +64,21 @@ export interface MarketTrendView {
   source: string;
 }
 
-/** A stock-feed entry: a product at/below reorder point plus its open suggestion. */
+/** One stock-feed card. The reference dashboard renders one "attention" card
+ *  per product at/below its reorder point (red tag, Order button) plus one
+ *  card per pending AI suggestion (Review button, "AI suggests ordering N
+ *  units"). Both buttons navigate to the product's detail page. */
 export interface StockFeedItem {
+  kind: 'attention' | 'suggestion';
   productId: string;
   productName: string;
   sku: string;
-  stock: number;
-  reorderPoint: number;
-  velocityPerDay: number;
+  imageUrl: string | null;
+  /** attention cards */
   outOfStock: boolean;
+  velocityPerDay: number;
+  reorderPoint: number;
+  /** suggestion cards */
   supplierName: string | null;
   supplierLeadTimeDays: number | null;
   suggestionOrderId: string | null;

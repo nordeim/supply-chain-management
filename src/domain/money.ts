@@ -30,6 +30,18 @@ export function formatMoney(minor: number): string {
   return `${negative ? '-' : ''}$${formatted}`;
 }
 
+/**
+ * Format integer cents in the reference app's product-tile shape:
+ * one decimal, no digit grouping — 232000 -> "$2320.0", 258000 -> "$2580.0".
+ * Matches the reference product-detail Cost/Price tiles exactly.
+ */
+export function formatMoneyPlain(minor: number): string {
+  const negative = minor < 0;
+  const major = Math.abs(Math.round(minor)) / MINOR_UNITS_PER_MAJOR;
+  const fixed = major.toFixed(1);
+  return `${negative ? '-' : ''}$${fixed}`;
+}
+
 /** Parse a user-supplied decimal amount ("2480.00") into integer cents.
  *  Returns null when the input is not a valid non-negative money amount. */
 export function parseMoneyToMinor(input: string): number | null {

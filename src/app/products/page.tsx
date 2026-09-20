@@ -16,10 +16,11 @@ interface PageProps {
  */
 export default async function ProductsPage({ searchParams }: PageProps) {
   const params = await searchParams;
-  const lowStockOnly = params.filter === 'low';
+  // The dashboard's Low Stock card links with ?status=low (reference behavior).
+  const lowStockOnly = params.filter === 'low' || params.status === 'low';
   const search = params.q?.trim() ?? '';
   const category = params.category ?? 'All Categories';
-  const status = params.status ?? 'All Status';
+  const status = params.status && params.status !== 'low' ? params.status : 'All Status';
 
   const [products, categories] = await Promise.all([
     listProducts(search || undefined, category, status),
@@ -31,13 +32,6 @@ export default async function ProductsPage({ searchParams }: PageProps) {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Products</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {rows.length} {rows.length === 1 ? 'product' : 'products'}
-            {lowStockOnly && ' at or below reorder point'}
-          </p>
-        </div>
         <ProductsFilters
           categories={categories}
           initialSearch={search}
@@ -45,25 +39,32 @@ export default async function ProductsPage({ searchParams }: PageProps) {
           initialStatus={status}
           lowStockOnly={lowStockOnly}
         />
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Products</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {rows.length} {rows.length === 1 ? 'Product' : 'Products'}
+            {lowStockOnly && ' at or below reorder point'}
+          </p>
+        </div>
       </div>
 
       {rows.length === 0 ? (
-        <p className="rounded-2xl bg-[#f3f4f6] p-6 text-sm text-muted-foreground">
+        <p className="rounded-[32px] bg-white p-6 text-sm text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
           No products match the current filters. Clear the search or choose a different category.
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-[#e5e7eb]">
+        <div className="overflow-x-auto rounded-[32px] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
           <table className="w-full min-w-[820px] text-sm">
             <thead>
-              <tr className="border-b border-[#e5e7eb] bg-[#f9fafb] text-left text-xs uppercase tracking-wide text-muted-foreground">
-                <th scope="col" className="px-4 py-3 font-semibold">Product</th>
-                <th scope="col" className="px-4 py-3 font-semibold">SKU</th>
-                <th scope="col" className="px-4 py-3 font-semibold">Category</th>
-                <th scope="col" className="px-4 py-3 font-semibold text-right">Stock</th>
-                <th scope="col" className="px-4 py-3 font-semibold text-right">Reorder Pt.</th>
-                <th scope="col" className="px-4 py-3 font-semibold">Status</th>
-                <th scope="col" className="px-4 py-3 font-semibold text-right">Velocity</th>
-                <th scope="col" className="px-4 py-3 font-semibold">Supplier</th>
+              <tr className="border-b border-black/5 text-left text-sm font-semibold text-foreground">
+                <th scope="col" className="px-5 py-4">Product</th>
+                <th scope="col" className="px-5 py-4">SKU</th>
+                <th scope="col" className="px-5 py-4">Category</th>
+                <th scope="col" className="px-5 py-4 text-right">Stock</th>
+                <th scope="col" className="px-5 py-4 text-right">Reorder Pt.</th>
+                <th scope="col" className="px-5 py-4">Status</th>
+                <th scope="col" className="px-5 py-4 text-right">Velocity</th>
+                <th scope="col" className="px-5 py-4">Supplier</th>
               </tr>
             </thead>
             <tbody>
@@ -72,26 +73,26 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                 return (
                   <tr
                     key={product.id}
-                    className="border-b border-[#e5e7eb] last:border-0 transition-colors hover:bg-[#f9fafb]"
+                    className="border-b border-black/5 transition-colors last:border-0 hover:bg-[#efefef]"
                   >
-                    <td className="px-4 py-3">
+                    <td className="px-5 py-3.5">
                       <Link href={`/products/${product.id}`} className="font-semibold underline-offset-2 hover:underline">
                         {product.name}
                       </Link>
                     </td>
-                    <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{product.sku}</td>
-                    <td className="px-4 py-3">{product.category}</td>
-                    <td className={`px-4 py-3 text-right font-semibold ${low ? 'text-destructive' : ''}`}>
+                    <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{product.sku}</td>
+                    <td className="px-5 py-3.5">{product.category}</td>
+                    <td className={`px-5 py-3.5 text-right font-semibold ${low ? 'text-destructive' : ''}`}>
                       {product.stock}
                     </td>
-                    <td className="px-4 py-3 text-right text-muted-foreground">{product.reorderPoint}</td>
-                    <td className="px-4 py-3">
-                      <Badge variant="outline" className="rounded-full border-[#dcdfe3] font-medium text-[#374151]">
+                    <td className="px-5 py-3.5 text-right text-muted-foreground">{product.reorderPoint}</td>
+                    <td className="px-5 py-3.5">
+                      <Badge variant="outline" className="rounded-full border-[#dfdfdf] font-medium text-[#343434]">
                         {product.status}
                       </Badge>
                     </td>
-                    <td className="px-4 py-3 text-right">{product.velocityPerDay.toFixed(1)} / day</td>
-                    <td className="px-4 py-3 text-muted-foreground">{product.supplierName ?? '—'}</td>
+                    <td className="px-5 py-3.5 text-right">{product.velocityPerDay.toFixed(1)} / day</td>
+                    <td className="px-5 py-3.5 text-muted-foreground">{product.supplierName ?? '—'}</td>
                   </tr>
                 );
               })}

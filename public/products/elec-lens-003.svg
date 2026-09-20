@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" role="img" aria-label="85mm f2.8 Prime Lens">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#eff3f7"/>
+      <stop offset="1" stop-color="#dde6ee"/>
+    </linearGradient>
+    <linearGradient id="barrel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#383838"/>
+      <stop offset="1" stop-color="#141414"/>
+    </linearGradient>
+  </defs>
+  <rect width="400" height="300" fill="url(#bg)"/>
+  <circle cx="200" cy="150" r="86" fill="#ffffff" opacity="0.5"/>
+  <g transform="translate(200 150)">
+    <rect x="-60" y="-74" width="120" height="148" rx="26" fill="url(#barrel)"/>
+    <rect x="-60" y="-74" width="120" height="34" rx="16" fill="#000" opacity="0.32"/>
+    <rect x="-50" y="-32" width="100" height="9" rx="4" fill="#ff9000" opacity="0.9"/>
+    <rect x="-50" y="26" width="100" height="9" rx="4" fill="#5a5a5a"/>
+    <rect x="-50" y="42" width="100" height="9" rx="4" fill="#5a5a5a"/>
+    <circle cx="0" cy="-2" r="36" fill="#0b0b0b"/>
+    <circle cx="0" cy="-2" r="30" fill="#0f2640"/>
+    <circle cx="0" cy="-2" r="20" fill="#081a2e"/>
+    <circle cx="-8" cy="-9" r="6" fill="#aad9ff" opacity="0.9"/>
+    <circle cx="8" cy="5" r="3" fill="#7fb8e8" opacity="0.7"/>
+    <rect x="-27" y="62" width="54" height="12" rx="6" fill="#ff9000" opacity="0.85"/>
+  </g>
+  <text x="200" y="274" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="13" fill="#6b7280" letter-spacing="2">ELEC-LENS-003</text>
+</svg>
