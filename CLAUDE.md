@@ -57,8 +57,8 @@ Follow this six-phase workflow for all implementation tasks:
 - Disable buttons during async operations; use `useTransition` for router-refresh mutations
 
 **Tailwind CSS v4 (CSS-first)**
-- Brand tokens in `:root` + `@theme inline` in `globals.css` (orange `#F97316` primary with black foreground text, `#f3f4f6` background, `#e5e7eb` secondary, `#ef4444` destructive, `#22c55e` success)
-- Use semantic tokens (`bg-primary`, `text-muted-foreground`) instead of raw hex; hardcoded hex is acceptable only for reference-app fidelity (e.g. `#f3f4f6` surfaces)
+- Brand tokens in `:root` + `@theme inline` in `globals.css` — Session 2 parity palette: orange `#FF9000` primary with dark-navy `#0F1729` foreground text, `#EFEFEF` background, `#DFDFDF` inactive pills, `#F13A15` destructive, `#22C55E` success, black `#111111` KPI tile, white cards at `32px` radius
+- Use semantic tokens (`bg-primary`, `text-muted-foreground`) instead of raw hex; hardcoded hex is acceptable only for reference-app fidelity
 - Responsive: mobile-first; the nav rail hides below `md`; tables scroll horizontally on small screens
 
 **Prisma + SQLite**
@@ -90,19 +90,23 @@ Optional demo sign-in account (seeded): `demo@supplychain.local` / `demo-passwor
 | `bun run lint` | Run linter |
 | `bun run typecheck` | Type checking |
 | `bun run db:push` / `db:seed` / `verify:analytics` | Database schema / demo data / KPI regression check |
+| `bun run test` / `test:watch` | Vitest unit suite (52 domain tests) / watch mode |
+| `bun run test:e2e` | Playwright E2E (31 chromium tests, `next start` on :3002; build first) |
 
 ## Testing Strategy
 
 ### Test Pyramid
-- **Unit Tests**: pure domain functions (`src/domain/*`) — velocity, forecasting, low-stock scoring, money parsing, ledger series replay
-- **Integration Checks**: `scripts/verify-analytics.ts` — asserts the seeded ledger reproduces the reference KPIs (velocity 1.5/1.2/0.8/0.7/0.4/0.0, low-stock score −1, 11 pending suggestions, 90-day series integrity)
-- **E2E Flows**: browser-verified golden paths — sign in, create product, approve suggestion, sign out (captured in `docs/screenshots/`)
+- **Unit Tests (Vitest, 52)**: pure domain functions in `src/domain/*.test.ts` — velocity windows, low-stock scoring, reorder-quantity math, forecasting, 30-day sales deltas, money formatting/parsing, ActionResult shape, gauge/tick-scale helpers, and the reference reasoning sentence. TDD: Red → Green → Refactor; tests are colocated with the modules they cover.
+- **Integration Check**: `scripts/verify-analytics.ts` — asserts the seeded ledger reproduces the reference KPIs (velocity 1.5/1.2/0.8/0.7/0.4/0.0, low-stock score −1, 11 pending suggestions, inventory value $202,610 cost basis, movers badges +2/−1/0/+1/+2, 90-day series integrity)
+- **E2E (Playwright, 31 chromium tests)**: `e2e/*.spec.ts` run against the production build (`next start`, not dev) — every page renders with reference data, sign-in/out with the seeded demo account, product search, status filter, Order Details side panel, supplier detail navigation, AI reasoning expansion, health probe. Webkit project is configured but needs system libraries; run `--project=chromium` where unavailable.
 
 ### Test Commands
 
 ```bash
-bun run verify:analytics   # DB-backed regression check against reference values
-bun run lint && bun run typecheck   # static gates — both must exit 0
+bun run test                       # 52 unit tests — no DB required
+bun run verify:analytics           # DB-backed regression check against reference values
+bun run lint && bun run typecheck  # static gates — both must exit 0
+bun run build && bun run test:e2e  # full browser E2E against the shipped artifact
 ```
 
 ## Code Quality Standards
@@ -149,17 +153,20 @@ ESLint 9 flat config with `eslint-config-next`. Fix reported issues; never disab
 ### Architecture
 ```
 src/app/        → routes (server components) + client islands
-src/components/app/ → app-specific UI (shell, charts, dialogs, filters)
+src/components/app/ → app-specific UI (shell, KPI grid/gauges, dot plot, stock feed,
+                     order-details panel, procurement table, charts, dialogs, filters)
 src/components/ui/  → shadcn/ui primitives (do not hand-modify)
 src/server/     → queries.ts (reads) + actions.ts (mutations)
-src/domain/     → pure business logic (no I/O, no imports from app/server/lib)
+src/domain/     → pure business logic (no I/O, no imports from app/server/lib) + *.test.ts
 src/lib/        → db client, session, env validation, utils
+e2e/           → Playwright browser specs (run against next start)
 prisma/         → schema + idempotent seed
+public/products/ → product images for stock-feed cards
 scripts/        → verification tooling
 ```
 
 ### API Design
-- UI mutations: Server Actions returning `ActionResult<T>` only
+- UI mutations: Server Actions returning `ActionResult<T>` only. Reference-parity note: the only mutation surfaces in the UI are the New Product dialog and sign-in/up/out; PO lifecycle actions remain in the server layer for programmatic/admin use
 - Route handlers: `GET /api/health`, `GET /api/suppliers` — read-only, JSON
 - No client-side secrets; all privileged logic stays server-side
 
@@ -176,14 +183,17 @@ scripts/        → verification tooling
 | `SESSION_SECRET` | prod | HMAC secret for session cookies | `openssl rand -base64 32` |
 | `SEED_DEMO_EMAIL` | no | Demo sign-in email | `demo@supplychain.local` |
 | `SEED_DEMO_PASSWORD` | no | Demo sign-in password | `demo-password` |
+| `E2E_PORT` | no | Playwright web server port | `3002` |
+| `E2E_BASE_URL` | no | Reuse an external server for E2E | `http://127.0.0.1:3002` |
 
 ## Success Metrics
 
 You are successful when:
-- `bun run lint`, `bun run typecheck`, and `bun run verify:analytics` all pass
-- The dashboard KPIs match the derived ledger state (no stale or denormalized numbers)
+- `bun run lint`, `bun run typecheck`, `bun run test`, and `bun run verify:analytics` all pass
+- `bun run build && bun run test:e2e` passes (31 chromium tests) after UI changes
+- The dashboard KPIs match the derived ledger state (no stale or denormalized numbers) and the reference values ($202,610 inventory value, 6 SKUs, −1 low stock, 11 pending suggestions)
 - New features follow the layer rule (app → server → domain → db) and actions return `ActionResult`
-- Docs (AGENTS/PAD) stay truthful after any change you make
+- Docs (AGENTS/PAD/README) stay truthful after any change you make
 
 ## System Integration
 
@@ -201,6 +211,6 @@ You are successful when:
 - **REST endpoints for UI mutations** — Server Actions
 - **Thrown errors across action boundaries** — return `ActionResult`
 - **Page-file named exports** other than the allowed four
-- **Hardcoded AI reasoning strings** — use `buildAiReasoning`
+- **Hardcoded AI reasoning strings** — use `buildAiReasoning` for generated suggestions or `REFERENCE_AI_REASONING` for the reference-parity list surface; nothing else
 - **Editing `src/components/ui/*`** — wrap or restyle at the usage site
 - **Committing secrets** — `.env`, deploy keys, and `db/*.db` stay out of the tree
