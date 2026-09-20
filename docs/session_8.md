@@ -19,3 +19,12 @@ W5 — documentation aligned to PAD v1.4: new revision block (flake diagnosis wi
 - CI runners pinned to `ubuntu-24.04` ahead of the ubuntu-latest → Ubuntu 26 label migration (2026-10-19)
 - All gates green at delivery: lint 0 · tsc 0 · 85/85 unit · analytics PASS · build clean · 31/31 chromium E2E · live reference parity spot-check: zero drift
 - Docs at PAD v1.4; webkit remains `continue-on-error` pending more green runs — the promotion path (delete the line) stays documented in §8.4
+
+## Delivery (completed in the follow-up session)
+
+The session-6 push was blocked at the time: the deploy key in play had been deauthorized server-side between two wrapper attempts (authentication rejected with the same, byte-verified key that had carried six earlier pushes — host key verified on both :22 and ssh.github.com:443 to rule out a MITM). The two commits sat local-ready; a follow-up session with a re-authorized key completed the delivery:
+
+- Workspace refresh first: fetched (origin still at `d0436df` — no user commits in between), removed a **fourth** stray sandbox auto-commit (`e303ec0`, UUID message, additions-only `skills/` content — same class as the three before it) via a mixed reset to `93b6cae`, keeping the synced skills files untracked
+- Fast gates re-validated on the exact tree being pushed: lint 0 · tsc 0 · 85/85 unit
+- Push via `docs/ssh_git_wrapper_v3.py` (fresh key, fingerprint-verified before use): `d0436df..93b6cae` fast-forward, remote ref verified `==` local HEAD, operator key shredded after
+- **Hosted CI run #8 validated the delivery on both jobs:** quality-gate green in 72s (lint → types → unit+coverage → analytics → build → chromium E2E 31/31) and the webkit job green in 81s — **the first post-fix webkit run**, confirming the run-#7 hydration-race remediation holds under hosted-CI conditions. Webkit green streak now runs #5/#6/#8; the `continue-on-error` promotion path (PAD §8.4) remains deliberately unpromoted pending a longer streak.

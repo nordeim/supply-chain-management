@@ -240,6 +240,7 @@ Before going public: set a strong `SESSION_SECRET`, back or migrate the SQLite f
 | Hardening (session 4, PAD v1.2) | ✅ Complete | Session guard on admin actions (ADR-008), wired env contract (production refuses insecure SESSION_SECRET), coverage thresholds (95/85/95/95), GitHub Actions CI |
 | WebKit diagnosis & green (session 5, PAD v1.3) | ✅ Complete | Public E2E failure annotations (JUnit → run-page `::error` commands), request-protocol `Secure` cookie flag (fixes WebKit dropping the session cookie on plain-HTTP), node24 CI actions, webkit E2E green on hosted CI (31/31) |
 | WebKit flake fix & runner pin (session 6, PAD v1.4) | ✅ Complete | Hydration-race hardening for E2E specs that act on SSR-rendered inputs (`toPass()` retry + `name="q"` graceful implicit GET), CI runners pinned to `ubuntu-24.04` ahead of the Ubuntu 26 label migration |
+| Session-6 delivery completion (session 7) | ✅ Complete | Pushed `d0436df..93b6cae` with a re-authorized deploy key (session-6 push had been key-rejected); CI run #8 green on both jobs — webkit's first post-fix run (31/31, 81s) |
 | Verified E2E | ✅ Complete | Browser-verified flows, screenshots in `docs/screenshots/` |
 
 ## Troubleshooting
