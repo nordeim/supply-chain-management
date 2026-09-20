@@ -1,13 +1,18 @@
-# Supply Chain Management — Master Project Architecture Document (PAD) v1.3
+# Supply Chain Management — Master Project Architecture Document (PAD) v1.4
 
 **Classification:** Internal Engineering Reference
 **Status:** DEFINITIVE, PRODUCTION-LOCKED BLUEPRINT
 **Companion Documents:** `README.md` (operator guide) · `AGENTS.md` (agent cheat-sheet) · `CLAUDE.md` (agent operating contract)
-**Last Updated:** 2026-09-20 (Session 5 — webkit E2E diagnosis & green)
+**Last Updated:** 2026-09-20 (Session 6 — webkit hydration-race flake diagnosis & fix, runner pin)
 **Audience:** Senior Engineers, Tech Leads, DevOps, and Onboarding Engineers
 **Rule:** Every architectural decision in this document traces to a specific rationale. Nothing is here "because it's popular."
 
 ---
+
+#### Revision Block — v1.4 (Tracked Changes)
+
+- `[TST]` **WebKit E2E hydration-race flake diagnosed and fixed (two layers).** Hosted-CI run #7 (a docs-only commit — bit-identical app code to the green runs #5/#6) failed one webkit test, `Products › search filters the catalog`, at the 5s `expect` timeout: the job finished in 1m41s (shorter than the green 1m53s), proving a fast assertion failure, not a 60s test-timeout burn. Root cause class: **Playwright actions don't retry (assertions do)** — on a slow shared runner, `fill`+`Enter` can land before the products page's client island hydrates, so the submit is unwired and the URL never gains `?q=`. Fix layer 1 (spec): the interact→assert block is wrapped in `expect(async () => { … }).toPass()` (2s inner attempts, 20s budget) — Playwright's canonical remedy; local simulation (JS-bundle delay + `name="q"` stripped from SSR HTML) reproduced the failure with the old pattern and proved the retry rescues it deterministically. Fix layer 2 (component): the search inputs in `products-filters.tsx` and `order-filters.tsx` carry `name="q"` — a pre-hydration Enter then triggers the browser's implicit GET submission with the correct query, and the server renders the filtered table; post-hydration the attribute is inert (`handleSubmit` preventDefaults, URL flow stays router-driven). All three interleavings (both-pre-hydration, wiped/unwired, post-hydration) are now deterministic.
+- `[CIC]` **CI runners pinned to `ubuntu-24.04`** (was `ubuntu-latest`): GitHub announced the label migrates to Ubuntu 26 on 2026-10-19 (`actions/runner-images#14748`) — pinning freezes the runner image the gate was validated on (one image, one webkit system-deps story across both jobs); re-pin deliberately when updating.
 
 #### Revision Block — v1.3 (Tracked Changes)
 
@@ -560,7 +565,7 @@ Model: single-role local accounts. Sign-up is open (mirrors the reference's acco
 - **TDD unit suite (Vitest):** every domain behavior — velocity windows, reorder-quantity math, low-stock scoring, forecast banding, `salesDelta30d` day-bucketed windows, gauge/tick-scale helpers, money formatting/parsing, ActionResult shape, and the `REFERENCE_AI_REASONING` sentence — is pinned by a colocated `*.test.ts` written Red-first. The domain layer imports nothing, so the suite runs in-process with no DB and finishes in <1s.
 - **Reference-value regression:** `verify-analytics` asserts the seeded ledger reproduces the reference KPIs (velocity 1.5/1.2/0.8/0.7/0.4/0.0; low-stock score −1; 11 suggestions; **inventory value $202,610 cost basis**; movers badges +2/−1/0/+1/+2; series end equals live inventory value) — this pins ADR-003/004 and the data parity against refactor drift.
 - **Invariant-enforcing seed:** the ledger builder validates never-negative stock and exact ending balance before writing — data bugs fail at seed time with precise messages.
-- **Playwright E2E (production artifact):** specs boot `next start` (not dev) on :3002 — mirroring the foundation's audit finding that dev HMR hydration can diverge from prod. Coverage: all 8 routes render with reference data, sign-in/out with the seeded demo account, product search, status filter, Order Details side panel contents + absence of transition buttons (parity), supplier detail navigation, AI reasoning expansion, `/api/health` probe. The webkit project runs the same 31 specs; it is green on hosted CI (run #5+) with a 60s per-test timeout, but needs system libraries for local runs — where unavailable, run `npx playwright test --project=chromium`. JUnit output (`test-results/junit.xml`) feeds `bun run e2e:summary` for CI summaries and annotations.
+- **Playwright E2E (production artifact):** specs boot `next start` (not dev) on :3002 — mirroring the foundation's audit finding that dev HMR hydration can diverge from prod. Coverage: all 8 routes render with reference data, sign-in/out with the seeded demo account, product search, status filter, Order Details side panel contents + absence of transition buttons (parity), supplier detail navigation, AI reasoning expansion, `/api/health` probe. The webkit project runs the same 31 specs; it is green on hosted CI (run #5+) with a 60s per-test timeout, but needs system libraries for local runs — where unavailable, run `npx playwright test --project=chromium`. JUnit output (`test-results/junit.xml`) feeds `bun run e2e:summary` for CI summaries and annotations. **Hydration-race discipline (v1.4):** Playwright actions don't retry while assertions do — specs that act on SSR-rendered client-island DOM (fill + Enter) wrap interact→assert in `expect(async () => { … }).toPass()` so slow runners can't wedge the suite; the search inputs' `name="q"` makes a pre-hydration Enter degrade gracefully into the implicit GET with the correct query.
 
 ### 7.3 Coverage Thresholds
 
@@ -607,10 +612,10 @@ None shipped (deliberate: zero-service local story). The standalone build is Doc
 
 ### 8.4 CI/CD Pipeline
 
-`.github/workflows/ci.yml` runs on every push/PR to `main`:
+`.github/workflows/ci.yml` runs on every push/PR to `main` (runners pinned to `ubuntu-24.04` — see the v1.4 revision block):
 
 - **quality-gate job (required):** bun install (frozen lockfile) → `prisma generate` → lint → typecheck → unit tests with coverage thresholds → `db:push` + `db:seed` → `verify:analytics` → production build → Playwright **chromium** E2E (report + junit uploaded on failure).
-- **e2e-webkit job (exploratory, `continue-on-error`):** the same setup with the webkit browser — green since run #5 (after the request-protocol cookie fix); kept non-blocking pending more green runs, promote by deleting the `continue-on-error` line. Webkit specs run with a 60s per-test timeout (headless WebKit is slower on shared runners).
+- **e2e-webkit job (exploratory, `continue-on-error`):** the same setup with the webkit browser — green on runs #5/#6, one hydration-race flake on run #7 (a docs-only commit; fixed two-layer in v1.4: `toPass()` retry + `name="q"`); kept non-blocking pending more green runs, promote by deleting the `continue-on-error` line. Webkit specs run with a 60s per-test timeout (headless WebKit is slower on shared runners).
 - **Public results reporting (both E2E jobs):** after each E2E step (`if: always()`), `bun run e2e:summary` parses `test-results/junit.xml` into (a) a job-summary markdown table (visible to signed-in maintainers) and (b) `::error` workflow commands that render as **annotations on the public run page** — the one surface anonymous viewers can read, which is how webkit-only failures are diagnosed without log access. Annotations carry the test name, file:line, and the first ~4 lines of each failure; a fallback annotation fires if junit.xml is missing (suite crashed before reporting).
 - **Actions on node24 majors:** `actions/checkout@v7`, `actions/upload-artifact@v7` (no Node-20 deprecation warnings).
 
@@ -663,6 +668,7 @@ Full setup (with verification) in `README.md` §Quick Start.
 
 | Priority | Issue | Impact | Status |
 |----------|-------|--------|--------|
+| — | ~~WebKit flake: `Products › search filters the catalog` failed on run #7 (docs-only commit)~~ | — | **Resolved in v1.4** — hydration race: actions landed pre-hydration on a slow runner; fixed two-layer (toPass retry in the spec, `name="q"` graceful implicit GET in the components) |
 | — | ~~Session cookie dropped by WebKit on plain-HTTP production-mode E2E~~ | — | **Resolved in v1.3** — the `Secure` flag now follows the request protocol (`x-forwarded-proto`); webkit E2E green on hosted CI since run #5 (31/31) |
 | Low | Webkit E2E needs OS system libraries for local runs | Webkit specs can't run on minimal hosts/sandboxes | Mitigated — chromium is the default local gate (`--project=chromium`); webkit runs on hosted CI (green); `npx playwright install-deps webkit` where root is available |
 | — | ~~Mutations do not require a session~~ | — | **Resolved in v1.2** — admin lifecycle actions refuse anonymous callers (`UNAUTHENTICATED`, ADR-008); reference-parity surfaces (New Product, auth) intentionally stay open |

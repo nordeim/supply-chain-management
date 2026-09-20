@@ -195,7 +195,7 @@ curl http://localhost:3000/api/health
 | Static gates | `bun run lint && bun run typecheck` | No DB required |
 | Unit (TDD) | `bun run test` | 85 Vitest tests in `src/domain/*.test.ts` + `src/lib/env.test.ts` — money formatting, ActionResult, session guard, env contract, velocity windows, reorder math, 30-day deltas, forecast/ledger replay, gauge/scale helpers, reference reasoning sentence |
 | KPI parity | `bun run verify:analytics` | Asserts the seeded ledger reproduces reference values: velocities 1.5/1.2/0.8/0.7/0.4/0.0, low-stock −1, 11 suggestions, inventory value $202,610 (cost basis), movers badges +2/−1/0/+1/+2 |
-| E2E | `bun run build && bun run test:e2e` | 31 Playwright tests in `e2e/` against `next start` (not dev): every page, sign-in/out, search, filters, Order Details panel, supplier detail, reference row/data assertions. CI runs the suite on both chromium (blocking) and webkit (green since run #5). Locally webkit needs its system libs — run `npx playwright test --project=chromium` where they're unavailable. `bun run e2e:summary` renders the JUnit results as a totals/failure report (CI also publishes them as public run annotations) |
+| E2E | `bun run build && bun run test:e2e` | 31 Playwright tests in `e2e/` against `next start` (not dev): every page, sign-in/out, search, filters, Order Details panel, supplier detail, reference row/data assertions. CI runs the suite on both chromium (blocking) and webkit (green since run #5, one flake fixed in v1.4) on pinned `ubuntu-24.04` runners. Locally webkit needs its system libs — run `npx playwright test --project=chromium` where they're unavailable. `bun run e2e:summary` renders the JUnit results as a totals/failure report (CI also publishes them as public run annotations). Specs that act on SSR-rendered inputs wrap interact→assert in `toPass()` — Playwright actions don't retry, so pre-hydration fills/Enters on slow runners need the block-level retry |
 | CI results | run page annotations | E2E failures appear as public annotations on the GitHub Actions run page (no login needed) — test name, file:line, and the first lines of each failure |
 
 ## Design System
@@ -239,6 +239,7 @@ Before going public: set a strong `SESSION_SECRET`, back or migrate the SQLite f
 | Session 2 parity remediation | ✅ Complete | Reference tokens (#FF9000/#EFEFEF/32px), asymmetric KPI grid, dot-plot chart, image stock feed, reference data ($202,610), informational PO panel, supplier detail routes |
 | Hardening (session 4, PAD v1.2) | ✅ Complete | Session guard on admin actions (ADR-008), wired env contract (production refuses insecure SESSION_SECRET), coverage thresholds (95/85/95/95), GitHub Actions CI |
 | WebKit diagnosis & green (session 5, PAD v1.3) | ✅ Complete | Public E2E failure annotations (JUnit → run-page `::error` commands), request-protocol `Secure` cookie flag (fixes WebKit dropping the session cookie on plain-HTTP), node24 CI actions, webkit E2E green on hosted CI (31/31) |
+| WebKit flake fix & runner pin (session 6, PAD v1.4) | ✅ Complete | Hydration-race hardening for E2E specs that act on SSR-rendered inputs (`toPass()` retry + `name="q"` graceful implicit GET), CI runners pinned to `ubuntu-24.04` ahead of the Ubuntu 26 label migration |
 | Verified E2E | ✅ Complete | Browser-verified flows, screenshots in `docs/screenshots/` |
 
 ## Troubleshooting
