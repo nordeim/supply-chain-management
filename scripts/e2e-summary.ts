@@ -3,11 +3,15 @@
  * a compact markdown summary.
  *
  * Why this exists: the exploratory webkit CI job failed on the first hosted
- * run (exit 1), but GitHub's raw step logs are login-walled for anonymous
- * viewers. Job summaries ($GITHUB_STEP_SUMMARY) ARE public on the run page —
- * so the CI workflow appends this summary after every E2E job (if: always()).
- * That makes webkit failures visible without log access and without
- * downloading the playwright-report artifact.
+ * run (exit 1), but GitHub's raw step logs AND job-summary markdown render
+ * only for signed-in users. Public surfaces are (a) the annotations column
+ * of the run page and (b) the report artifact (login). So this script does
+ * two things after every E2E job (CI runs it with if: always()):
+ *   1. appends a full totals + per-failure markdown table to
+ *      $GITHUB_STEP_SUMMARY (visible to signed-in maintainers), and
+ *   2. emits `::error` workflow commands (max 10 — GitHub's per-step cap)
+ *      that become ANNOTATIONS on the run page — publicly readable without
+ *      login, which is how webkit-only failures are diagnosed anonymously.
  *
  * Usage:
  *   bun run e2e:summary                       # after `bun run test:e2e`
@@ -104,6 +108,17 @@ function truncate(text: string, max: number): string {
   return `${text.slice(0, max)}\n… (truncated — see the playwright-report artifact for the full error)`;
 }
 
+/** GitHub workflow-command escaping: %, CR, LF must not appear raw in the
+ *  message; property values additionally cannot contain commas or colons. */
+function workflowErrorCommand(file: string, line: string, title: string, message: string): string {
+  const cleanProp = (s: string) => s.replace(/[%,\r\n:]/g, " ").replace(/\s+/g, " ").trim();
+  const cleanTitle = cleanProp(title).slice(0, 100);
+  const cleanFile = cleanProp(file).slice(0, 120) || "e2e";
+  const cleanLine = /^\d+$/.test(line) ? line : "1";
+  const cleanMessage = message.replace(/%/g, "%25").replace(/\r/g, "").replace(/\n/g, " %0A ").slice(0, 350);
+  return `::error file=${cleanFile},line=${cleanLine},title=${cleanTitle}::${cleanMessage}`;
+}
+
 function buildMarkdown(totals: { tests: number; failures: number; errors: number; skipped: number; time: string }, cases: TestCaseResult[]): string {
   const failed = totals.failures + totals.errors;
   const passed = cases.filter((c) => c.status === "passed").length;
@@ -134,9 +149,43 @@ function buildMarkdown(totals: { tests: number; failures: number; errors: number
   return lines.join("\n") + "\n";
 }
 
+function inCi(): boolean {
+  return process.env.GITHUB_ACTIONS === "true" || Boolean(process.env.GITHUB_STEP_SUMMARY);
+}
+
+function emitFailureAnnotations(cases: TestCaseResult[]): void {
+  const failures = cases.filter((c) => c.status === "failed");
+  // GitHub's hard caps: 10 annotations per step, 50 per run. Keep one slot
+  // for the overflow line when there are more failures than slots.
+  const max = failures.length > 9 ? 9 : 10;
+  for (const f of failures.slice(0, max)) {
+    const firstLine = (f.failureMessage || f.failureBody || "(no failure message recorded)").split("\n")[0] ?? "";
+    console.log(workflowErrorCommand(f.file, f.line, `E2E ${f.project}: ${f.name}`, firstLine));
+  }
+  if (failures.length > max) {
+    console.log(
+      workflowErrorCommand(
+        "e2e",
+        "1",
+        `E2E ${cases[0]?.project ?? ""} — ${failures.length} failed tests total`,
+        `Showing the first ${max} as annotations; download the playwright-report artifact for all ${failures.length} failures.`,
+      ),
+    );
+  }
+}
 function main(): void {
   if (!existsSync(JUNIT_PATH)) {
     console.info(`[e2e-summary] ${JUNIT_PATH} not found — nothing to summarize (did the E2E suite run?).`);
+    if (inCi()) {
+      console.log(
+        workflowErrorCommand(
+          "e2e",
+          "1",
+          "E2E results unavailable",
+          "No junit.xml was produced — the suite likely crashed before reporting (browser/webServer launch failure). Download the playwright-report artifact if it exists.",
+        ),
+      );
+    }
     return;
   }
   let parsed: ReturnType<typeof parseJunit>;
@@ -144,10 +193,25 @@ function main(): void {
     parsed = parseJunit(readFileSync(JUNIT_PATH, "utf8"));
   } catch (error) {
     console.info(`[e2e-summary] could not parse ${JUNIT_PATH}: ${String(error)}`);
+    if (inCi()) {
+      console.log(
+        workflowErrorCommand("e2e", "1", "E2E results unavailable", `Could not parse junit.xml: ${String(error).slice(0, 200)}`),
+      );
+    }
     return;
   }
   if (parsed.totals.tests === 0 && parsed.cases.length === 0) {
     console.info(`[e2e-summary] ${JUNIT_PATH} contains no results — nothing to summarize.`);
+    if (inCi()) {
+      console.log(
+        workflowErrorCommand(
+          "e2e",
+          "1",
+          "E2E results unavailable",
+          "junit.xml exists but records no test results — the suite crashed before reporting.",
+        ),
+      );
+    }
     return;
   }
   const markdown = buildMarkdown(parsed.totals, parsed.cases);
@@ -159,6 +223,9 @@ function main(): void {
   } else {
     console.info(markdown);
   }
+  // Public diagnosability: annotations render on the run page without login
+  // (job-summary markdown and raw logs do not). Never affects job outcome.
+  if (inCi()) emitFailureAnnotations(parsed.cases);
 }
 
 main();
