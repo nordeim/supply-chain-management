@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Instructions for AI coding agents working in this repository. Every line answers: "would you get this wrong without being told?" Verified against the toolchain on 2026-09-20 (v1.5: webkit promoted to blocking CI gate; session guard, coverage gate, hosted CI).
+Instructions for AI coding agents working in this repository. Every line answers: "would you get this wrong without being told?" Verified against the toolchain on 2026-09-21 (v1.6: mobile navigation parity, db-path URL contract, anchored seed dates).
 
 ## Commands
 
@@ -12,13 +12,13 @@ Run from the repo root. Bun is the runtime and package manager (never `npm`/`yar
 | `bun run dev` | Dev server on :3000 (Turbopack), logs to `dev.log` |
 | `bun run lint` | ESLint 9 flat config — must exit 0 before committing |
 | `bun run typecheck` | `tsc --noEmit` — strict mode, must exit 0 |
-| `bun run db:push` | Push `prisma/schema.prisma` to SQLite (destructive-tolerant) |
-| `bun run db:seed` | Idempotent seed (natural-key upserts). Demo user creds via `SEED_DEMO_EMAIL`/`SEED_DEMO_PASSWORD` env, safe defaults otherwise |
+| `bun run db:push` | Push `prisma/schema.prisma` to SQLite (destructive-tolerant). Routes through `scripts/db-cli.ts`, which anchors the relative `file:` URL at the repo root before invoking the CLI — a raw `prisma db push` would resolve `env()` URLs against the `.env` location and land one level above the repo |
+| `bun run db:seed` | Idempotent seed (natural-key upserts). Demo user creds via `SEED_DEMO_EMAIL`/`SEED_DEMO_PASSWORD` env, safe defaults otherwise. Rebuilds a seeded product's ledger when its newest sale crossed UTC midnight (the movers badges are day-bucketed) and pins PO dates to the reference capture day |
 | `bun run verify:analytics` | Checks the seeded ledger reproduces the reference KPIs (velocity 1.5/1.2/0.8/0.7/0.4/0.0, low-stock −1, 11 suggestions, inventory value **$202,610 cost basis**, movers badges +2/−1/0/+1/+2) |
-| `bun run test` | Vitest unit suite — 85 tests (`src/domain/*.test.ts` + `src/lib/env.test.ts`), no DB required |
+| `bun run test` | Vitest unit suite — 103 tests (`src/**/*.test.ts`), no DB required |
 | `bun run test:watch` | Same suite in watch mode |
-| `bun run test:coverage` | Same suite with v8 coverage + thresholds (95/85/95/95 over `src/domain/**` + `src/lib/env.ts`) |
-| `bun run test:e2e` | Playwright E2E — 31 tests in `e2e/` against `next start` on :3002 (needs `bun run build` first; override with `E2E_PORT`/`E2E_BASE_URL`). Webkit runs the same specs green on hosted CI; locally it needs system libs (`--project=chromium` where unavailable) |
+| `bun run test:coverage` | Same suite with v8 coverage + thresholds (95/85/95/95 over `src/domain/**` + `src/lib/env.ts` + `src/lib/db-path.ts`) |
+| `bun run test:e2e` | Playwright E2E — 38 tests in `e2e/` against `next start` on :3002 (needs `bun run build` first; override with `E2E_PORT`/`E2E_BASE_URL`). Includes `mobile-navigation.spec.ts` (iPhone 14 viewport via `test.use` — runs under every project, so hosted CI covers mobile Safari). Webkit runs the same specs green on hosted CI; locally it needs system libs (`--project=chromium` where unavailable) |
 | `bun run e2e:summary` | Render `test-results/junit.xml` (written by every E2E run) as a totals + failure report; on CI it also publishes failures as public run-page annotations |
 | `bun run build` | Production build (standalone output) |
 | `bun run start` | Serve the standalone production build on :3000 |
@@ -42,7 +42,9 @@ Order for a clean check: `bun run lint && bun run typecheck && bun run test` (no
 - **Next.js 16:** `params` and `searchParams` in pages are Promises — always `await` them (see any page file). `cookies()` is async too. Page files may export ONLY `default`, `metadata`/`generateMetadata`, `revalidate`, `dynamic` — a stray named export fails the build (the `OrderStatusBadge` component lives in `src/components/app/` for exactly this reason).
 - **Root layout reads cookies** (`getSessionUser`), so every route is effectively dynamic; pages additionally declare `export const dynamic = 'force-dynamic'` to be explicit and future-proof.
 - **Tailwind v4 CSS-first config:** brand tokens live in `:root` inside `src/app/globals.css` and are mapped through `@theme inline`. The Session 2 parity audit extracted the reference palette: orange `#FF9000` primary, `#EFEFEF` app background, `#DFDFDF` inactive pills, `#F13A15` destructive, black `#111111` KPI tile, dark-navy `#0F1729` on-orange text, white cards at `32px` radius. There is no `tailwind.config.js`. New semantic colors must be added to BOTH the `:root` block and the `@theme inline` mapping (`--success` shows the pattern).
-- **Prisma SQLite URL resolution:** relative `file:` paths resolve against `prisma/schema.prisma`, not the repo root or CWD. The documented default `file:../db/custom.db` lands at `<repo>/db/custom.db` — keep that shape in `.env.example` and docs.
+- **Prisma SQLite URL resolution:** relative `file:` paths in `DATABASE_URL` are anchored at `prisma/schema.prisma` by `src/lib/db-path.ts` — the runtime (`src/lib/db.ts`), the seed, and `verify:analytics` all resolve through it, and the `db:*` scripts route the Prisma CLI through `scripts/db-cli.ts` so it sees the same absolute URL. Do NOT invoke `prisma db push` directly — the raw CLI resolves env-provided relative URLs against the `.env` location and lands one level above the repo. An exported `DATABASE_URL` in your shell wins over `.env` (standard precedence — export an absolute URL only if you intend to override). The contract is pinned by `src/lib/db-path.test.ts`.
+- **Reference breakpoints are `lg`, not `md`:** the nav rail is `hidden lg:flex` and the mobile bottom pill is `lg:hidden` — between 768 and 1023px the reference shows ONLY the bottom pill. The header's New Product button and the Sign In/Out pill text appear at `md`. Both navs share `nav-items.tsx` (sections, order, glyphs, `isNavItemActive`) — never fork the item list. The reference's own SVG glyphs are inlined there; do not swap them for lucide icons.
+- **Seed date anchoring:** purchase-order dates (and the market-trends quarter) are pinned to `REFERENCE_ANCHOR` (2026-09-20, the live reference's capture day) so the clone renders the reference's fixed dates (07.06.26, 07.12.26, Q3 2026) on every future day. The movement ledger stays `now`-relative (velocity math needs live windows). The movers badges are day-bucketed 30d windows — after a UTC midnight the seeded ledger goes stale and the seed rebuilds it on the next `bun run db:seed` run (newest-sale-not-today detection).
 - **`recharts` typing:** `stroke` wants a string; `stroke={false}` is a type error in this version. Use `stroke="none"`.
 - **TDD for domain changes:** new/changed behavior in `src/domain/*` gets a failing test first (`*.test.ts` colocated), then the implementation, then `bun run test`. E2E specs in `e2e/` run against the production build, not dev — dev HMR hydration can diverge from prod (scandihaven audit finding).
 - **E2E actions don't retry (assertions do):** a spec that fills/presses on SSR-rendered client-island DOM can race hydration on slow runners (CI webkit, run #7) — wrap the interact→assert block in `expect(async () => { … }).toPass()` (short inner timeouts, e.g. 2s; budget ~20s), and give the form's input a `name` so a pre-hydration implicit GET still carries the right query (see `products-filters.tsx`). The one-shot fill→Enter→toHaveURL pattern is a known flake.

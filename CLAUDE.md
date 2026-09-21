@@ -59,10 +59,10 @@ Follow this six-phase workflow for all implementation tasks:
 **Tailwind CSS v4 (CSS-first)**
 - Brand tokens in `:root` + `@theme inline` in `globals.css` — Session 2 parity palette: orange `#FF9000` primary with dark-navy `#0F1729` foreground text, `#EFEFEF` background, `#DFDFDF` inactive pills, `#F13A15` destructive, `#22C55E` success, black `#111111` KPI tile, white cards at `32px` radius
 - Use semantic tokens (`bg-primary`, `text-muted-foreground`) instead of raw hex; hardcoded hex is acceptable only for reference-app fidelity
-- Responsive: mobile-first; the nav rail hides below `md`; tables scroll horizontally on small screens
+- Responsive: mobile-first with the reference's breakpoints — the nav rail renders at `lg` and up; below `lg` the floating frosted bottom-nav pill navigates (both share `nav-items.tsx`); the header's New Product appears at `md`; tables scroll horizontally on small screens
 
 **Prisma + SQLite**
-- Schema in `prisma/schema.prisma`; DB file at `db/custom.db` (relative URL `file:../db/custom.db` resolves against the schema dir)
+- Schema in `prisma/schema.prisma`; DB file at `db/custom.db` (`.env` keeps the relative URL `file:../db/custom.db`; `src/lib/db-path.ts` anchors it at the `prisma/` schema directory at runtime, and `scripts/db-cli.ts` does the same for the `db:*` CLI scripts — never invoke `prisma db push` raw)
 - All reads through `src/server/queries.ts`; all writes through `src/server/actions.ts`
 - Money fields are `Int` (`*Minor` suffix); statuses are strings validated in the domain/action layer
 
@@ -91,19 +91,19 @@ Optional demo sign-in account (seeded): `demo@supplychain.local` / `demo-passwor
 | `bun run typecheck` | Type checking |
 | `bun run db:push` / `db:seed` / `verify:analytics` | Database schema / demo data / KPI regression check |
 | `bun run test` / `test:watch` / `test:coverage` | Vitest unit suite (85 tests) / watch mode / with coverage thresholds |
-| `bun run test:e2e` / `e2e:summary` | Playwright E2E (31 tests, `next start` on :3002; build first) / JUnit results → failure report |
+| `bun run test:e2e` / `e2e:summary` | Playwright E2E (38 tests incl. mobile-viewport specs, `next start` on :3002; build first) / JUnit results → failure report |
 
 ## Testing Strategy
 
 ### Test Pyramid
-- **Unit Tests (Vitest, 85)**: pure domain functions in `src/domain/*.test.ts` plus the env contract in `src/lib/env.test.ts` — velocity windows, low-stock scoring, reorder-quantity math, forecasting, 30-day sales deltas, ledger day-series replay, money formatting/parsing, ActionResult shape, gauge/tick-scale helpers, the session guard, and the reference reasoning sentence. TDD: Red → Green → Refactor; tests are colocated with the modules they cover. `bun run test:coverage` enforces 95/85/95/95 thresholds over the pure layer.
+- **Unit Tests (Vitest, 103)**: pure functions in `src/**/*.test.ts` — velocity windows, low-stock scoring, reorder-quantity math, forecasting, 30-day sales deltas, ledger day-series replay, money formatting/parsing, ActionResult shape, gauge/tick-scale helpers, the session guard, the reference reasoning sentence, the db-path DATABASE_URL contract, and the shared nav model. TDD: Red → Green → Refactor; tests are colocated with the modules they cover. `bun run test:coverage` enforces 95/85/95/95 thresholds over the pure layer.
 - **Integration Check**: `scripts/verify-analytics.ts` — asserts the seeded ledger reproduces the reference KPIs (velocity 1.5/1.2/0.8/0.7/0.4/0.0, low-stock score −1, 11 pending suggestions, inventory value $202,610 cost basis, movers badges +2/−1/0/+1/+2, 90-day series integrity)
-- **E2E (Playwright, 31 tests)**: `e2e/*.spec.ts` run against the production build (`next start`, not dev) — every page renders with reference data, sign-in/out with the seeded demo account, product search, status filter, Order Details side panel, supplier detail navigation, AI reasoning expansion, health probe. CI runs chromium and webkit as **both-blocking** jobs (webkit promoted from exploratory in PAD v1.5 after a 3-run post-fix green streak) on pinned `ubuntu-24.04` runners with public failure annotations on the run page; locally webkit needs system libraries — run `--project=chromium` where unavailable. Hydration-race discipline: specs that act on SSR-rendered inputs wrap interact→assert in `toPass()` because Playwright actions don't retry.
+- **E2E (Playwright, 38 tests)**: `e2e/*.spec.ts` run against the production build (`next start`, not dev) — every page renders with reference data, sign-in/out with the seeded demo account, product search, status filter, Order Details side panel, supplier detail navigation, AI reasoning expansion, health probe, plus the mobile bottom-nav pill suite (iPhone 14 viewport via `test.use`, runs under every project so hosted CI covers mobile Safari). CI runs chromium and webkit as **both-blocking** jobs (webkit promoted from exploratory in PAD v1.5 after a 3-run post-fix green streak) on pinned `ubuntu-24.04` runners with public failure annotations on the run page; locally webkit needs system libraries — run `--project=chromium` where unavailable. Hydration-race discipline: specs that act on SSR-rendered inputs wrap interact→assert in `toPass()` because Playwright actions don't retry.
 
 ### Test Commands
 
 ```bash
-bun run test                       # 85 unit tests — no DB required
+bun run test                       # 103 unit tests — no DB required
 bun run test:coverage              # same suite + v8 coverage thresholds (95/85/95/95)
 bun run verify:analytics           # DB-backed regression check against reference values
 bun run lint && bun run typecheck  # static gates — both must exit 0
@@ -193,7 +193,7 @@ scripts/        → verification tooling
 
 You are successful when:
 - `bun run lint`, `bun run typecheck`, `bun run test` (or `test:coverage`), and `bun run verify:analytics` all pass
-- `bun run build && bun run test:e2e` passes (31 tests) after UI changes, and hosted CI is green on the pushed commit (both chromium and webkit jobs)
+- `bun run build && bun run test:e2e` passes (38 tests) after UI changes, and hosted CI is green on the pushed commit (both chromium and webkit jobs)
 - The dashboard KPIs match the derived ledger state (no stale or denormalized numbers) and the reference values ($202,610 inventory value, 6 SKUs, −1 low stock, 11 pending suggestions)
 - New features follow the layer rule (app → server → domain → db) and actions return `ActionResult`
 - Docs (AGENTS/PAD/README) stay truthful after any change you make

@@ -25,6 +25,7 @@ The AI Suggestions engine watches each SKU's stock position against its reorder 
 | ✨ | Feature | What it does |
 |---|---------|--------------|
 | 📊 | **Dashboard** | Reference-asymmetric KPI grid (black Total SKUs + orange Inventory Value stack, tall Low Stock tick-scale + Pending PO semicircle gauge), 90-day dot-plot inventory-value chart, top-5 movers with 30-day delta badges, 12-card image stock feed |
+| 📱 | **Mobile navigation** | The reference's floating frosted bottom pill (42px container, backdrop blur, white 48px active pill with label, 34px #DFDFDF icon circles) below `lg`; the desktop rail takes over at `lg` — shared item model in `nav-items.tsx` |
 | 📦 | **Products** | Searchable/filterable catalog with stock, reorder points, live velocity, and supplier per SKU, in reference row order |
 | 🔍 | **Product detail** | Stat tiles, replenishment policy, stock-level history chart, 30-day demand forecast with confidence band, purchase-order history, one-decimal cost/price tiles |
 | 🤖 | **AI Suggestions** | 11 engine-generated replenishment recommendations (table layout, reference totals/dates) with expandable reasoning — informational, like the reference |
@@ -48,8 +49,8 @@ The AI Suggestions engine watches each SKU's stock position against its reorder 
 | ORM | Prisma | 6 | Schema, migrations, typed client |
 | Database | SQLite (file) | 3 | Zero-config local persistence (PostgreSQL-ready schema) |
 | Validation | Zod | 4 | Action input validation |
-| Unit tests | Vitest | 5 | Domain-layer regression (85 tests, TDD, coverage-gated) |
-| E2E tests | Playwright | 1.63 | Golden-path browser suite against the production build (31 tests; chromium + webkit green on CI) |
+| Unit tests | Vitest | 5 | Domain-layer regression (103 tests, TDD, coverage-gated) — includes the db-path URL contract and the shared nav model |
+| E2E tests | Playwright | 1.63 | Golden-path browser suite against the production build (38 tests; chromium + webkit green on CI, incl. 7 mobile-viewport specs) |
 | Runtime | Bun | ≥1.1 | Install, run, scripts |
 
 ```mermaid
@@ -95,14 +96,15 @@ flowchart TB
 ```
 📂 supply-chain-management/
 ├── 📂 docs/
-│   └── 📂 screenshots/            ← verified captures of every page (11 images)
-├── 📂 e2e/                        ← Playwright specs (7 files, 31 chromium tests)
+│   └── 📂 screenshots/            ← verified captures of every page (18 images: 11 desktop + 7 mobile)
+├── 📂 e2e/                        ← Playwright specs (8 files, 38 chromium tests incl. mobile-navigation)
 ├── 📂 prisma/
 │   ├── 📄 schema.prisma           ← data model (6 tables, minor-unit money)
-│   └── 📄 seed.ts                 ← idempotent demo data + engineered ledger
+│   └── 📄 seed.ts                 ← idempotent demo data + engineered ledger (anchored PO dates)
 ├── 📂 public/
 │   └── 📂 products/               ← product images for stock-feed cards
 ├── 📂 scripts/
+│   ├── 📄 db-cli.ts               ← Prisma CLI wrapper (anchors DATABASE_URL at the repo root)
 │   └── 📄 verify-analytics.ts     ← KPI regression check vs reference values
 ├── 📂 src/
 │   ├── 📂 app/
@@ -116,17 +118,18 @@ flowchart TB
 │   │   └── 📂 api/                 ← health + suppliers endpoints
 │   ├── 📂 components/
 │   │   ├── 📂 app/                 ← shell, KPI cards/gauges, dot plot, stock feed,
-│   │   │                            order-details panel, procurement table, dialogs
+│   │   │                            order-details panel, procurement table, dialogs,
+│   │   │                            nav-items + nav-sidebar + mobile-nav (shared model)
 │   │   └── 📂 ui/                  ← shadcn/ui primitives
 │   ├── 📂 domain/                  ← pure logic + TDD unit tests
 │   │   ├── 📄 replenishment(.test).ts · money(.test).ts · result(.test).ts · types.ts
 │   ├── 📂 server/                  ← queries.ts (reads) + actions.ts (mutations)
-│   └── 📂 lib/                     ← db client, session, env, utils
+│   └── 📂 lib/                     ← db client (db-path resolved), session, env, db-path(.test), utils
 ├── 📄 AGENTS.md                    ← agent onboarding cheat-sheet
 ├── 📄 CLAUDE.md                    ← agent operating contract
 ├── 📄 Project_Architecture_Document.md ← full blueprint with ADRs
 ├── 📄 .env.example                 ← environment contract
-├── 📄 vitest.config.ts             ← unit test config (node env, @ alias)
+├── 📄 vitest.config.ts             ← unit test config (node env, @ alias, coverage gate)
 ├── 📄 playwright.config.ts         ← E2E config (next start :3002, chromium+webkit)
 └── 📄 package.json                 ← scripts (dev/lint/typecheck/db:*/test/test:e2e)
 ```
@@ -193,9 +196,9 @@ curl http://localhost:3000/api/health
 | Check | Command | Notes |
 |-------|---------|-------|
 | Static gates | `bun run lint && bun run typecheck` | No DB required |
-| Unit (TDD) | `bun run test` | 85 Vitest tests in `src/domain/*.test.ts` + `src/lib/env.test.ts` — money formatting, ActionResult, session guard, env contract, velocity windows, reorder math, 30-day deltas, forecast/ledger replay, gauge/scale helpers, reference reasoning sentence |
+| Unit (TDD) | `bun run test` | 103 Vitest tests — money formatting, ActionResult, session guard, env contract, db-path resolution, nav model, velocity windows, reorder math, 30-day deltas, forecast/ledger replay, gauge/scale helpers, reference reasoning sentence |
 | KPI parity | `bun run verify:analytics` | Asserts the seeded ledger reproduces reference values: velocities 1.5/1.2/0.8/0.7/0.4/0.0, low-stock −1, 11 suggestions, inventory value $202,610 (cost basis), movers badges +2/−1/0/+1/+2 |
-| E2E | `bun run build && bun run test:e2e` | 31 Playwright tests in `e2e/` against `next start` (not dev): every page, sign-in/out, search, filters, Order Details panel, supplier detail, reference row/data assertions. CI runs the suite on both chromium and webkit as **blocking** jobs (webkit promoted in v1.5 after a 3-run post-fix green streak; one flake fixed in v1.4) on pinned `ubuntu-24.04` runners. Locally webkit needs its system libs — run `npx playwright test --project=chromium` where they're unavailable. `bun run e2e:summary` renders the JUnit results as a totals/failure report (CI also publishes them as public run annotations). Specs that act on SSR-rendered inputs wrap interact→assert in `toPass()` — Playwright actions don't retry, so pre-hydration fills/Enters on slow runners need the block-level retry |
+| E2E | `bun run build && bun run test:e2e` | 38 Playwright tests against `next start` (not dev): every page, sign-in/out, search, filters, Order Details panel, supplier detail, reference row/data assertions, plus 7 mobile-viewport specs pinning the floating bottom-nav pill (renders, navigates, active states, breakpoint swap at `lg`, no horizontal overflow at 390px). CI runs the suite on both chromium and webkit as **blocking** jobs; the mobile specs execute under both engines at the iPhone 14 viewport, so hosted CI covers mobile Safari. `bun run e2e:summary` renders the JUnit results as a totals/failure report (CI also publishes them as public run annotations). Specs that act on SSR-rendered inputs wrap interact→assert in `toPass()` — Playwright actions don't retry |
 | CI results | run page annotations | E2E failures appear as public annotations on the GitHub Actions run page (no login needed) — test name, file:line, and the first lines of each failure |
 
 ## Design System
@@ -243,6 +246,7 @@ Before going public: set a strong `SESSION_SECRET`, back or migrate the SQLite f
 | Session-6 delivery completion (session 7) | ✅ Complete | Pushed `d0436df..93b6cae` with a re-authorized deploy key (session-6 push had been key-rejected); CI run #8 green on both jobs — webkit's first post-fix run (31/31, 81s) |
 | WebKit promotion to blocking gate (session 8, PAD v1.5) | ✅ Complete | `continue-on-error` removed from the webkit CI job after three consecutive post-fix green runs (#8/#9/#10); job renamed `E2E (webkit)` — both E2E jobs now block main, public-annotation diagnosability unchanged |
 | Verified E2E | ✅ Complete | Browser-verified flows, screenshots in `docs/screenshots/` |
+| Session 9 — mobile navigation + db-path contract (PAD v1.6) | ✅ Complete | Reference bottom-nav pill (frosted, active-label, icon circles, `lg` swap), header mobile collapse, KPI mobile layout, reference glyphs inlined; `src/lib/db-path.ts` anchors `DATABASE_URL` at the repo root for server/seed/CLI; PO dates pinned to the reference capture day; stale-ledger self-heal; type gate restored in builds; 103 unit / 38 E2E tests |
 
 ## Troubleshooting
 
@@ -250,7 +254,7 @@ Before going public: set a strong `SESSION_SECRET`, back or migrate the SQLite f
 |-------|----------|
 | `Invalid server environment: DATABASE_URL is required` | Copy `.env.example` to `.env` and set the URL |
 | Prisma "database not found" | Relative `file:` URLs resolve against `prisma/schema.prisma` — keep `file:../db/custom.db` |
-| KPIs look wrong after editing the seed | Run `bun run db:seed && bun run verify:analytics`; the ledger builder throws a precise error on impossible specs |
+| KPIs look wrong after editing the seed | Run `bun run db:seed && bun run verify:analytics`; the ledger builder throws a precise error on impossible specs. If the movers badges drifted after a UTC-day rollover, the seed detects the stale ledger (newest sale not today) and rebuilds it on the next `db:seed` run |
 | Login fails with the demo account | The seed only (re)creates the account it knows — re-run with `SEED_DEMO_EMAIL`/`SEED_DEMO_PASSWORD` set |
 | Production sign-in fails with `SESSION_SECRET must be set...` | The env contract is now enforced at session-signing time — set a real secret (`openssl rand -base64 32`) in `.env` for production boots |
 | Playwright: webkit tests fail to launch locally | Webkit needs OS system libraries; locally run `npx playwright test --project=chromium` (hosted CI runs webkit green) or `npx playwright install-deps webkit` on a host with root |

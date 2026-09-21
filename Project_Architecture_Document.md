@@ -1,13 +1,21 @@
-# Supply Chain Management — Master Project Architecture Document (PAD) v1.5
+# Supply Chain Management — Master Project Architecture Document (PAD) v1.6
 
 **Classification:** Internal Engineering Reference
 **Status:** DEFINITIVE, PRODUCTION-LOCKED BLUEPRINT
 **Companion Documents:** `README.md` (operator guide) · `AGENTS.md` (agent cheat-sheet) · `CLAUDE.md` (agent operating contract)
-**Last Updated:** 2026-09-20 (Session 8 — webkit promoted from exploratory to blocking CI gate)
+**Last Updated:** 2026-09-21 (Session 9 — mobile navigation parity, db-path URL contract, anchored seed dates)
 **Audience:** Senior Engineers, Tech Leads, DevOps, and Onboarding Engineers
 **Rule:** Every architectural decision in this document traces to a specific rationale. Nothing is here "because it's popular."
 
 ---
+
+#### Revision Block — v1.6 (Tracked Changes)
+
+- `[PAR]` **Mobile navigation parity (the reference's floating bottom pill).** A fresh computed-style audit of the live reference found the clone had NO navigation below `md` (the rail was `hidden md:flex`) while the reference ships a floating bottom pill below `lg` plus a rail at `lg`+ (both `lg`, not `md`). Rebuilt per the audit: `mobile-nav.tsx` (fixed bottom-0, z-50, pb-4; frosted 42px container — radius 100px, rgba(255,255,255,0.1) + 20px backdrop blur, 4px gap/padding; white 48px active pill with 14px icon + 14px/500 Inter label; 34px #DFDFDF inactive circles), the rail restyled to the reference's true geometry (active = 60×60 white icon square + growing label pill; inactive = 40px pills; 10px glyphs; 16px/400 Inter labels), and the header collapsed per breakpoint (New Product `hidden md:flex`; Sign In/Out shrink to 50px #DFDFDF circles with a 34px black core below `md`). The reference's own SVG glyphs are inlined in `nav-items.tsx` — one shared item model for both navs (unit-tested). The KPI grid now reproduces the reference's mobile arrangement ([Total SKUs | Inventory Value] row, full-width gauges, side-by-side from `sm`), the black tile's numeral renders orange like the reference, the header pills use Inter (`--font-brand`) at 16px with the orange label wrapping to two lines on narrow screens, and `--font-sans` was repaired (it pointed at an undefined `--font-geist-sans`). Pinned by 7 new mobile-viewport E2E specs (iPhone 14, runs under every project so CI covers mobile Safari).
+- `[DAT]` **DATABASE_URL resolution contract implemented (ADR-002 gap).** `.env.example` documented `src/lib/db-path.ts` since v1.2 but the file never existed, and an audit proved the Prisma CLI resolves env-provided relative `file:` URLs against the `.env` location — so `file:../db/custom.db` from the repo root landed one level ABOVE the repo. `src/lib/db-path.ts` now anchors relative URLs at the `prisma/` schema directory (module-location walk-up with CWD fallback, memoized, never throws; absolute/PG URLs pass through), wired into `src/lib/db.ts` (runtime), `prisma/seed.ts`, `scripts/verify-analytics.ts`, and `scripts/db-cli.ts` (the `db:push`/`db:migrate`/`db:reset` wrapper that exports the absolute URL to the CLI). 12 unit tests pin the contract; an exported `DATABASE_URL` still wins over `.env` (standard precedence).
+- `[DAT]` **Seed dates anchored + stale-ledger self-heal.** E2E specs assert the reference's fixed dates (07.06.26, 07.12.26, Q3 2026), but the seed computed them relative to seed-day — a latent time bomb that failed the suite after any UTC midnight (the movers badges are day-bucketed 30d windows and drift when a day crosses the boundary). Purchase-order dates and the market-trends quarter now pin to `REFERENCE_ANCHOR` (2026-09-20, the capture day) exactly like the live reference's static data; the ledger stays `now`-relative because velocity needs live windows; and `db:seed` rebuilds a seeded product's ledger when its newest sale is no longer from today, keeping `db:seed && verify:analytics` self-healing.
+- `[TYP]` **Build type gate restored:** `typescript.ignoreBuildErrors` removed from `next.config.ts` (tsc passes clean; the suppression was a weakened guardrail). `devIndicators: false` added so the dev-tools badge stops overlapping the mobile nav in captures.
+- `[TST]` Suite sizes: 85 → **103 unit** (db-path ×12, nav-items ×6, plus the env contract and the existing domain suite), 31 → **38 E2E** (mobile-navigation.spec.ts ×7). Coverage thresholds now include `src/lib/db-path.ts` (measured 96.9/90.3/100/99.0).
 
 #### Revision Block — v1.5 (Tracked Changes)
 
@@ -90,7 +98,7 @@ How to use this document:
 | Database | SQLite (file) | 3 | Zero-config, single-file persistence perfect for local/self-hosted deploys; schema stays PostgreSQL-portable |
 | Validation | Zod | 4 | Action-input validation with typed inference feeding `ActionResult` |
 | Unit tests | Vitest | 5 | Domain-layer TDD regression (node env, `@` alias, colocated `*.test.ts`) |
-| E2E tests | Playwright | 1.63 | Browser suite against the production build (`next start`, not dev) — mirrors the foundation's finding that dev HMR hydration can diverge from prod |
+| E2E tests | Playwright | 1.63 | Browser suite against the production build (`next start`, not dev) — mirrors the foundation's finding that dev HMR hydration can diverge from prod; includes mobile-viewport specs (iPhone 14) under every project |
 | Auth | Hand-rolled scrypt + HMAC cookies | — | No third-party dependency; vetted node:crypto primitives; mirrors the foundation's signed-cookie pattern |
 | Runtime/PM | Bun | ≥1.1 | Single tool for install/run/scripts; TypeScript execution for seed/verification scripts without a build step |
 
@@ -231,6 +239,7 @@ supply-chain-management/
 ├── public/
 │   └── products/                ← per-SKU images for the stock-feed cards
 ├── scripts/
+│   ├── db-cli.ts                ← Prisma CLI wrapper (anchors DATABASE_URL)
 │   └── verify-analytics.ts      ← DB-backed KPI regression vs reference values
 ├── docs/
 │   └── screenshots/             ← browser-verified captures of every page (11)
@@ -254,9 +263,11 @@ supply-chain-management/
 │   │       └── suppliers/route.ts ← supplier options for the New Product dialog
 │   ├── components/
 │   │   ├── app/
-│   │   │   ├── app-shell.tsx    ← header + nav rail; content on gray bg
+│   │   │   ├── app-shell.tsx    ← header + nav rail + mobile bottom pill
 │   │   │   ├── header-bar.tsx   ← 16px Inventory Manager h1, New Product, auth
-│   │   │   ├── nav-sidebar.tsx  ← active-state nav pills (client, usePathname)
+│   │   │   ├── nav-items.tsx    ← shared nav model + reference glyphs (both navs)
+│   │   │   ├── nav-sidebar.tsx  ← desktop rail (lg+): 60px active, 40px pills
+│   │   │   ├── mobile-nav.tsx   ← floating frosted bottom pill (below lg)
 │   │   │   ├── new-product-dialog.tsx ← creation form w/ image upload → action
 │   │   │   ├── sign-in-dialog.tsx     ← email/password + Google affordances
 │   │   │   ├── kpi-card.tsx     ← black/orange KPI tiles (reference geometry)
@@ -282,7 +293,8 @@ supply-chain-management/
 │   │   ├── queries.ts           ← every read, shaped into view types
 │   │   └── actions.ts           ← every mutation: zod → ActionResult → revalidate
 │   └── lib/
-│       ├── db.ts                ← Prisma singleton (globalThis in dev)
+│       ├── db.ts                ← Prisma singleton (db-path resolved URL)
+│       ├── db-path.ts(+test)    ← DATABASE_URL repo-root anchoring contract
 │       ├── session.ts           ← scrypt verify + HMAC cookie sessions
 │       ├── env.ts               ← parseServerEnv fail-fast contract
 │       └── utils.ts             ← cn() tailwind merge
@@ -502,7 +514,8 @@ Inter loaded via `next/font/google` (`--font-inter` CSS variable); body inherits
 
 ### 5.3 Component Geometry (reference measurements)
 
-- **Shell:** 224px nav rail with 60px pill items; header ~64px; page content directly on `#EFEFEF` gray.
+- **Shell:** 224px nav rail (16px left padding, 4px gaps; active = 60×60 white icon square + growing label pill, inactive = 40px `#DFDFDF` pills, 10px glyphs, 14px/400 Inter labels); header 50px with 16px Inter pill labels (the orange "Inventory Manager" label wraps to two lines below ~480px); page content directly on `#EFEFEF` gray at x=256 (`lg:pl-8`).
+- **Mobile nav (below `lg`):** floating bottom pill — `fixed bottom-0 inset-x-0 z-50 justify-center pb-4`, pointer-events pass-through wrapper; 42px frosted container (radius 100px, `rgba(255,255,255,0.1)` + 20px backdrop blur, 4px padding/gap); active section = white 48px pill (100px radius, 16px padding, 14px icon + 10px gap + 14px/500 Inter `#111111` label) rendered in place; inactive = 34px `#DFDFDF` circles with 14px glyphs. Fixed item order; the header's New Product (`hidden md:flex`) and Sign In/Out text (`hidden md:flex` in a 50px `#DFDFDF` circle with a 34px black core) collapse the same way.
 - **KPI grid (asymmetric):** left column stacks Total SKUs (black, 331×192) over Inventory Value (orange, 331×192); center Low Stock tall white card (323×400) with an HTML tick scale (20 ticks, opacity 0.15→0.5, 3px red marker, −20/−10/0 labels, 16px red dot); right Pending POS tall white card (323×400) with an SVG semicircle gauge (r100 track `#DFDFDF`, 7 dots r112 at 30° steps opacity 0.20→0.90, r16 orange marker, 0/60 labels).
 - **Charts row:** two white cards 496×400, radius 32; header carries an expand icon (not a calendar); y-axis formats `$200k/$150k/$100k/$50k/$0k`; the 90-day inventory chart is a **dot plot** (one colored dot per day, green rising / red falling), not an area chart.
 - **Stock feed:** 4-column grid of 232px image cards — 1 out-of-stock card (red tag + Order button) + one card per Suggested PO with the product's lead time/supplier + Review button; both buttons deep-link to `/products/:id`.
@@ -559,10 +572,10 @@ Model: single-role local accounts. Sign-up is open (mirrors the reference's acco
 |----------|-------|----------|-----------|
 | Static gate — lint | 0 errors | repo-wide | ESLint 9 (flat, next config) |
 | Static gate — types | 0 errors | `src/`, `prisma/`, `scripts/`, `e2e/` | `tsc --noEmit` (strict) |
-| Unit — domain + env contract | 85 tests | `src/domain/*.test.ts`, `src/lib/env.test.ts` (colocated) | Vitest 5 (node env, `@` alias, v8 coverage) |
+| Unit — domain + env + db-path + nav model | 103 tests | `src/**/*.test.ts` (colocated) | Vitest 5 (node env, `@` alias, v8 coverage) |
 | Analytics regression | ~25 assertions | `scripts/verify-analytics.ts` | Bun + Prisma (DB-backed) |
 | Seed invariants | runtime guards | `prisma/seed.ts` | self-balancing ledger builder throws |
-| E2E — browser | 31 tests (chromium + webkit, green on hosted CI) | `e2e/*.spec.ts` (7 files) | Playwright 1.63 vs `next start` :3002 |
+| E2E — browser | 38 tests (chromium + webkit, green on hosted CI; incl. 7 mobile-viewport specs) | `e2e/*.spec.ts` (8 files) | Playwright 1.63 vs `next start` :3002 |
 
 ### 7.2 Test Patterns
 
@@ -672,6 +685,10 @@ Full setup (with verification) in `README.md` §Quick Start.
 
 | Priority | Issue | Impact | Status |
 |----------|-------|--------|--------|
+| — | ~~No mobile navigation: the nav rail was `hidden md:flex`, leaving sub-768px users unable to navigate~~ | — | **Resolved in v1.6** — reference bottom pill rebuilt from a computed-style audit (frosted 42px container, white 48px active pill, 34px circles, `lg` swap), rail restyled to the reference's 60/40px geometry, header collapse per breakpoint, shared `nav-items.tsx` model; pinned by 7 mobile E2E specs |
+| — | ~~`DATABASE_URL="file:../db/custom.db"` landed one level above the repo (documented `src/lib/db-path.ts` never existed)~~ | — | **Resolved in v1.6** — `src/lib/db-path.ts` anchors relative URLs at the `prisma/` schema dir for the runtime, seed, and verifier; `scripts/db-cli.ts` does the same for the Prisma CLI; 12 unit tests pin the contract |
+| — | ~~E2E date assertions failed after a UTC midnight (seed computed PO dates relative to seed-day; movers badges day-bucketed)~~ | — | **Resolved in v1.6** — PO dates + market-trends quarter pinned to `REFERENCE_ANCHOR` (2026-09-20) like the reference's static data; the seed rebuilds a stale (crossed-midnight) ledger so `db:seed && verify:analytics` self-heals |
+| — | ~~`next.config.ts` shipped `typescript.ignoreBuildErrors: true`~~ | — | **Resolved in v1.6** — suppression removed; the production build enforces types (tsc passes clean) |
 | — | ~~WebKit flake: `Products › search filters the catalog` failed on run #7 (docs-only commit)~~ | — | **Resolved in v1.4** — hydration race: actions landed pre-hydration on a slow runner; fixed two-layer (toPass retry in the spec, `name="q"` graceful implicit GET in the components) |
 | — | ~~Session cookie dropped by WebKit on plain-HTTP production-mode E2E~~ | — | **Resolved in v1.3** — the `Secure` flag now follows the request protocol (`x-forwarded-proto`); webkit E2E green on hosted CI since run #5 (31/31) |
 | Low | Webkit E2E needs OS system libraries for local runs | Webkit specs can't run on minimal hosts/sandboxes | Mitigated — chromium is the default local gate (`--project=chromium`); webkit runs on hosted CI (green); `npx playwright install-deps webkit` where root is available |
