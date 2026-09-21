@@ -103,7 +103,7 @@ Optional demo sign-in account (seeded): `demo@supplychain.local` / `demo-passwor
 ### Test Commands
 
 ```bash
-bun run test                       # 103 unit tests — no DB required
+bun run test                       # 111 unit tests — no DB required
 bun run test:coverage              # same suite + v8 coverage thresholds (95/85/95/95)
 bun run verify:analytics           # DB-backed regression check against reference values
 bun run lint && bun run typecheck  # static gates — both must exit 0

@@ -80,7 +80,9 @@ export interface StockFeedItem {
   reorderPoint: number;
   /** suggestion cards */
   supplierName: string | null;
-  supplierLeadTimeDays: number | null;
+  /** the lead time printed on the card — the product's own lead time
+   *  (the reference's feed cards show product-level values, e.g. 14/10) */
+  leadTimeDays: number | null;
   suggestionOrderId: string | null;
   suggestedQty: number | null;
   aiReasoning: string | null;

@@ -1,13 +1,21 @@
-# Supply Chain Management — Master Project Architecture Document (PAD) v1.6
+# Supply Chain Management — Master Project Architecture Document (PAD) v1.7
 
 **Classification:** Internal Engineering Reference
 **Status:** DEFINITIVE, PRODUCTION-LOCKED BLUEPRINT
 **Companion Documents:** `README.md` (operator guide) · `AGENTS.md` (agent cheat-sheet) · `CLAUDE.md` (agent operating contract)
-**Last Updated:** 2026-09-21 (Session 9 — mobile navigation parity, db-path URL contract, anchored seed dates)
+**Last Updated:** 2026-09-21 (Session 10 — list-pattern parity rebuild, reference data ordering, detail pages, SKILL + deployment docs)
 **Audience:** Senior Engineers, Tech Leads, DevOps, and Onboarding Engineers
 **Rule:** Every architectural decision in this document traces to a specific rationale. Nothing is here "because it's popular."
 
 ---
+
+#### Revision Block — v1.7 (Tracked Changes)
+
+- `[PAR]` **List-pattern parity rebuild (the reference's tabular surfaces).** A signed-in page-by-page audit of the live reference (computed styles + DOM geometry at 1360×900 / 390×844) catalogued 23 deltas; the largest was structural: Products, AI Suggestions, and Procurement rendered HTML tables with border rows, titles outside the card, no product images, and no black header bar. All three now share `src/components/app/list-pattern.tsx` — ONE white 32px-radius card per page with the title (Inter 14px/500) + count INSIDE, a black `#111111` header bar (37px, 22px radius, white Inter 14px/400 labels), and rows as `#EFEFEF` gray pills (22px radius, 16px gaps; Products 56px / AI 78px / Procurement 77px) leading with 40×40 product images (8px radius) and Hanken Grotesk 300 numerals (`--font-numeric`, loaded via `next/font`). Below `sm`, AI/Procurement rows swap to stacked mobile cards (2-col grid, square image, 32px `#DFDFDF` chips); Products hides columns per breakpoint. The AI row carries the reference's "AI Reasoning ▼" expander (41px) + "Suggested:" note (21px) below each row.
+- `[DAT]` **Reference display-order + data-value contract.** The reference renders its demo data in fixed display orders not derivable from sortable columns: suggestions/stock feed follow the seeded PO creation order (CAM-002 first), procurement is `orderNumber asc` (2AF134 first), supplier cards follow their creation order (Nordic, Atlas, Pacific Rim, Electronics Direct), market trends follow the stored list order (Office, Apparel, F&B, Household, Electronics, Beauty). New pure module `src/domain/reference-order.ts` (8 unit tests, red-first) pins the trend order and the supplier `Avg Lead Time` rule (average of the supplier's PRODUCTS' lead days — Electronics Direct (14+14+7)/3 → 12); seed values aligned to the live app (product lead times 14/14/14/10/10/7, `location: null` for all, reference descriptions, supplier leadTimeDays 10/7/14/0, phone + notes seeded, supplier createdAt for card order, PO createdDaysAgo for the suggestion order). The engine's projections still prefer `supplierLeadTimeDays`, so the value changes are display-safe.
+- `[PAR]` **Shell + detail-surface geometry.** `main` padding is now `16px 0 80px` (header floats 16px below the top, 32px header→content gap, 80px bottom clearance for the mobile pill) with the SupplyChain pill at "Supply"(600)+"Chain"(400) 14px and a `font-normal` avatar; the nav rail sits at a 16px left inset. Market trends rebuilt to the reference's 3-column grid (355px cards, semicircle gauge with dot scale + marker); suppliers to 4-column 265×260 cards in the reference content order ("4/5 ★ | name | contact | email | N products | terms"); product detail is ONE hero white card (badges + 4 stat tiles + Reorder Point/Qty/Supplier/Lead Time policy row showing the PRODUCT's own lead time) with separate Description and Location cards; supplier detail gained the upload tile, "Name · phone" contact line, products table with health pills, and recent POs as "status · order# · qty units · $cost · ISO-date" rows; the Order Details panel shows the Approval Date for non-Suggested orders.
+- `[TST]` **E2E re-pinned + local-run fix.** Suite sizes: 103 → **111 unit** (reference-order ×8), E2E stays **38** with every spec re-pinned to the reference values (first suggestion CAM-002/$71,000; first procurement row 2AF134/$280 + Approval Date; role-based locators — `ListRow` renders its `aria-label` on the non-clickable branch and `SuggestionRow` carries `role="group"`). The Playwright webServer injects a local fallback `SESSION_SECRET` (production-mode boots refuse an empty secret — CI already sets one) so a bare local `bun run test:e2e` runs the sign-in round-trip self-contained.
+- `[DOC]` **New operator deliverables:** `supply-chain-management_SKILL.md` (the codebase distilled into a reusable working skill: conventions, file map, patterns, gates, and the established reference-parity methodology) and `docs/DEPLOYMENT.md` (deployment guide from the repo template — SQLite path contract, build/start scripts, env vars, reverse-proxy/TLS notes). Session log at `docs/session_14.md`.
 
 #### Revision Block — v1.6 (Tracked Changes)
 
@@ -231,7 +239,7 @@ Layer 3: src/app +      — routes (server components) and client islands
 
 ```
 supply-chain-management/
-├── e2e/                          ← Playwright E2E specs (7 files, 31 chromium tests)
+├── e2e/                          ← Playwright E2E specs (8 files, 38 chromium tests)
 ├── prisma/
 │   ├── schema.prisma            ← 6 models; money as Int minor units; natural keys
 │   └── seed.ts                  ← idempotent seed; self-balancing ledger builder;
@@ -275,8 +283,9 @@ supply-chain-management/
 │   │   │   ├── inventory-value-chart.tsx ← 90-day dot plot (client)
 │   │   │   ├── product-charts.tsx      ← stock history line + forecast band
 │   │   │   ├── stock-feed.tsx   ← image cards; Order/Review deep-links
-│   │   │   ├── suggestion-row.tsx      ← table line + AI Reasoning expand
-│   │   │   ├── procurement-table.tsx   ← PO rows w/ status filter (client)
+│   │   │   ├── list-pattern.tsx      ← shared list card/black bar/pill rows/mobile cards
+│   │   │   ├── suggestion-row.tsx      ← gray pill row + AI Reasoning expand + Suggested note
+│   │   │   ├── procurement-table.tsx   ← PO pill rows w/ Order Details (client)
 │   │   │   ├── order-details-panel.tsx ← slide-over, informational (client)
 │   │   │   ├── products-filters.tsx    ← URL-param search/category/status
 │   │   │   ├── order-filters.tsx       ← URL-param search/status
@@ -489,13 +498,14 @@ Extracted from the live reference app (Session 2 parity audit: computed styles +
 | Role | Font | Weight/Size |
 |------|------|-------------|
 | KPI numerals | Inter | extrabold, large (≈40–56px on tiles) |
+| Numeric cells (qty, cost, dates) | Hanken Grotesk (`--font-numeric`) | light 300, 14px — list-pattern rows and stat values |
 | Header h1 "Inventory Manager" | Inter | semibold 16px — lives in the header, links to `/` |
 | Section headings (h2) | Inter | semibold 16–18px (white card headers) |
 | Body / table text | system-ui stack | regular 14–15px (reference body font) |
 | SKUs, order numbers | system mono | 12–14px |
 | Muted labels | system-ui | medium, `--muted-foreground` (#343434) |
 
-Inter loaded via `next/font/google` (`--font-inter` CSS variable); body inherits the system-ui stack exactly like the reference.
+Inter (labels/body) and Hanken Grotesk (numerals) are loaded via `next/font/google` (`--font-inter` / `--font-hanken-grotesk` CSS variables); body inherits the system-ui stack exactly like the reference.
 
 ### 5.2 Color Tokens
 
@@ -519,7 +529,7 @@ Inter loaded via `next/font/google` (`--font-inter` CSS variable); body inherits
 - **KPI grid (asymmetric):** left column stacks Total SKUs (black, 331×192) over Inventory Value (orange, 331×192); center Low Stock tall white card (323×400) with an HTML tick scale (20 ticks, opacity 0.15→0.5, 3px red marker, −20/−10/0 labels, 16px red dot); right Pending POS tall white card (323×400) with an SVG semicircle gauge (r100 track `#DFDFDF`, 7 dots r112 at 30° steps opacity 0.20→0.90, r16 orange marker, 0/60 labels).
 - **Charts row:** two white cards 496×400, radius 32; header carries an expand icon (not a calendar); y-axis formats `$200k/$150k/$100k/$50k/$0k`; the 90-day inventory chart is a **dot plot** (one colored dot per day, green rising / red falling), not an area chart.
 - **Stock feed:** 4-column grid of 232px image cards — 1 out-of-stock card (red tag + Order button) + one card per Suggested PO with the product's lead time/supplier + Review button; both buttons deep-link to `/products/:id`.
-- **Tables:** AI Suggestions renders reference table lines (Product/Supplier/Qty/Total Cost/Delivery) with expandable AI Reasoning; Procurement rows are clickable → Order Details slide-over (status, product+SKU+category+View link, Qty, Total, Order#, Unit Cost, Supplier, Date, Close).
+- **Tables → list pattern (v1.7):** every tabular surface (Products, AI Suggestions, Procurement) renders ONE white 32px-radius card with title + count inside, a black `#111111` header bar (37px, white Inter 14px/400 labels), and `#EFEFEF` pill rows (22px radius, 40×40 product images, Hanken Grotesk 300 numerals, 16px gaps). AI rows carry the "AI Reasoning ▼" expander + "Suggested:" note below; Procurement rows open the Order Details slide-over (status, product+SKU+category+View link, Qty, Total, Order#, Unit Cost, Supplier, Date, Approval Date for non-Suggested, Close).
 - **Cards:** white, `radius 32px`, elevation `0 1px 2px rgba(0,0,0,0.05)`.
 
 ### 5.4 Motion / Animation
@@ -572,7 +582,7 @@ Model: single-role local accounts. Sign-up is open (mirrors the reference's acco
 |----------|-------|----------|-----------|
 | Static gate — lint | 0 errors | repo-wide | ESLint 9 (flat, next config) |
 | Static gate — types | 0 errors | `src/`, `prisma/`, `scripts/`, `e2e/` | `tsc --noEmit` (strict) |
-| Unit — domain + env + db-path + nav model | 103 tests | `src/**/*.test.ts` (colocated) | Vitest 5 (node env, `@` alias, v8 coverage) |
+| Unit — domain + env + db-path + nav + reference-order | 111 tests | `src/**/*.test.ts` (colocated) | Vitest 5 (node env, `@` alias, v8 coverage) |
 | Analytics regression | ~25 assertions | `scripts/verify-analytics.ts` | Bun + Prisma (DB-backed) |
 | Seed invariants | runtime guards | `prisma/seed.ts` | self-balancing ledger builder throws |
 | E2E — browser | 38 tests (chromium + webkit, green on hosted CI; incl. 7 mobile-viewport specs) | `e2e/*.spec.ts` (8 files) | Playwright 1.63 vs `next start` :3002 |
@@ -592,9 +602,9 @@ Model: single-role local accounts. Sign-up is open (mirrors the reference's acco
 
 - [ ] `bun run lint` exits 0
 - [ ] `bun run typecheck` exits 0
-- [ ] `bun run test` — 85 unit tests pass (or `test:coverage` to also enforce thresholds)
+- [ ] `bun run test` — 111 unit tests pass (or `test:coverage` to also enforce thresholds)
 - [ ] `bun run verify:analytics` passes (incl. $202,610 + badges)
-- [ ] `bun run build && bun run test:e2e` — 31 chromium tests pass
+- [ ] `bun run build && bun run test:e2e` — 38 chromium tests pass
 - [ ] CI green on the pushed commit (both jobs — see §8.4)
 - [ ] Dev server renders all 8 routes without console errors
 - [ ] Any schema change followed by `db:push` + `db:seed` + doc updates (AGENTS/PAD §data)
@@ -659,8 +669,8 @@ Full setup (with verification) in `README.md` §Quick Start.
 |---------|----------|---------|
 | `bun run dev` | repo root | Dev server (Turbopack) with `dev.log` |
 | `bun run lint` / `typecheck` | repo root | Static gates |
-| `bun run test` / `test:watch` / `test:coverage` | repo root | Vitest unit suite (85 tests) / watch mode / with v8 coverage thresholds |
-| `bun run test:e2e` | repo root | Playwright E2E (31 chromium tests; build first) |
+| `bun run test` / `test:watch` / `test:coverage` | repo root | Vitest unit suite (111 tests) / watch mode / with v8 coverage thresholds |
+| `bun run test:e2e` | repo root | Playwright E2E (38 chromium tests; build first) |
 | `bun run db:push` / `db:seed` | repo root | Schema push / idempotent demo data |
 | `bun run verify:analytics` | repo root | KPI regression check |
 | `bun run build` / `start` | repo root | Production build / serve |
@@ -713,10 +723,12 @@ Full setup (with verification) in `README.md` §Quick Start.
 | `src/components/app/app-shell.tsx` | ~40 | Layout geometry (header/rail, content on gray) |
 | `src/components/app/header-bar.tsx` | ~110 | 16px h1, New Product dialog mount, auth area |
 | `src/components/app/stock-feed.tsx` | ~200 | 12 image cards; Order/Review deep-links |
-| `src/components/app/order-details-panel.tsx` | ~120 | Procurement slide-over (informational, parity) |
-| `src/components/app/procurement-table.tsx` | ~130 | PO table rows w/ status filter + panel state |
-| `src/components/app/suggestion-row.tsx` | ~100 | Reference table line + AI Reasoning expand |
-| `e2e/*.spec.ts` | 7 files | 31 chromium E2E tests (all pages, auth, filters, panels) |
+| `src/components/app/list-pattern.tsx` | ~200 | Shared list primitives: ListCard, black header bar, gray pill rows, product cells, mobile cards |
+| `src/components/app/order-details-panel.tsx` | ~120 | Procurement slide-over (informational, parity; Approval Date row) |
+| `src/components/app/procurement-table.tsx` | ~110 | PO pill rows + Order Details panel state (client) |
+| `src/components/app/suggestion-row.tsx` | ~105 | Gray pill row + AI Reasoning expander + Suggested note (role=group) |
+| `src/domain/reference-order.ts` | ~45 | Reference display orders: market-trend rank, supplier avg lead time |
+| `e2e/*.spec.ts` | 8 files | 38 chromium E2E tests (all pages, auth, filters, panels, 7 mobile specs) |
 | `src/lib/session.ts` | ~110 | scrypt verify + HMAC cookie sessions; `Secure` flag follows request protocol |
 | `scripts/verify-analytics.ts` | ~170 | KPI regression vs reference values |
 | `scripts/e2e-summary.ts` | ~230 | JUnit → CI job summary + public failure annotations |

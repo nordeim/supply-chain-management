@@ -109,7 +109,7 @@ export function StockFeed({ items }: { items: StockFeedItem[] }) {
                 <p className="mt-1 text-xs text-muted-foreground">
                   {item.kind === 'attention'
                     ? `Velocity ${item.velocityPerDay.toFixed(1)}/day · Reorder point ${item.reorderPoint}`
-                    : `Lead time ${item.supplierLeadTimeDays ?? '—'} days · ${item.supplierName ?? '—'}`}
+                    : `Lead time ${item.leadTimeDays ?? '—'} days · ${item.supplierName ?? '—'}`}
                 </p>
               </div>
               <Button

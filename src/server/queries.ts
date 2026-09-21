@@ -19,6 +19,7 @@ import {
   FORECAST_HORIZON_DAYS,
   type MovementRecord,
 } from '@/domain/replenishment';
+import { sortMarketTrends, supplierAvgLeadTimeDays } from '@/domain/reference-order';
 import type {
   InventoryValuePoint,
   MarketTrendView,
@@ -40,6 +41,7 @@ export interface ProductListItem {
   supplierName: string | null;
   costMinor: number;
   priceMinor: number;
+  imageUrl: string | null;
 }
 
 function toMovementRecords(
@@ -81,6 +83,7 @@ export async function listProducts(search?: string, category?: string, status?: 
     supplierName: p.supplier?.name ?? null,
     costMinor: p.costMinor,
     priceMinor: p.priceMinor,
+    imageUrl: p.imageUrl,
   }));
 }
 
@@ -174,7 +177,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       velocityPerDay: analyticsByProduct.get(p.id)!.velocityPerDay,
       reorderPoint: p.reorderPoint,
       supplierName: p.supplier?.name ?? null,
-      supplierLeadTimeDays: p.supplier?.leadTimeDays ?? null,
+      leadTimeDays: p.leadTimeDays,
       suggestionOrderId: null,
       suggestedQty: null,
       aiReasoning: null,
@@ -190,7 +193,7 @@ export async function getDashboardData(): Promise<DashboardData> {
     velocityPerDay: analyticsByProduct.get(o.productId)?.velocityPerDay ?? 0,
     reorderPoint: o.product.reorderPoint,
     supplierName: o.product.supplier?.name ?? null,
-    supplierLeadTimeDays: o.product.supplier?.leadTimeDays ?? null,
+    leadTimeDays: o.product.leadTimeDays,
     suggestionOrderId: o.id,
     suggestedQty: o.quantity,
     aiReasoning: o.aiReasoning,
@@ -222,6 +225,7 @@ export interface ProductDetailData {
   category: string;
   description: string | null;
   status: string;
+  imageUrl: string | null;
   costMinor: number;
   priceMinor: number;
   stock: number;
@@ -230,7 +234,6 @@ export interface ProductDetailData {
   leadTimeDays: number;
   location: string | null;
   supplierName: string | null;
-  supplierLeadTimeDays: number | null;
   analytics: ProductAnalytics;
   stockHistory: StockHistoryPoint[];
   purchaseOrders: Array<{
@@ -282,6 +285,7 @@ export async function getProductDetail(id: string): Promise<ProductDetailData | 
     category: product.category,
     description: product.description,
     status: product.status,
+    imageUrl: product.imageUrl,
     costMinor: product.costMinor,
     priceMinor: product.priceMinor,
     stock: product.stock,
@@ -290,7 +294,6 @@ export async function getProductDetail(id: string): Promise<ProductDetailData | 
     leadTimeDays: product.leadTimeDays,
     location: product.location,
     supplierName: product.supplier?.name ?? null,
-    supplierLeadTimeDays: product.supplier?.leadTimeDays ?? null,
     analytics,
     stockHistory,
     purchaseOrders: orders.map((o) => ({
@@ -317,6 +320,7 @@ export interface SuggestionRow {
   expectedDelivery: Date | null;
   aiReasoning: string | null;
   orderDate: Date;
+  imageUrl: string | null;
 }
 
 export async function listSuggestions(): Promise<SuggestionRow[]> {
@@ -336,6 +340,7 @@ export async function listSuggestions(): Promise<SuggestionRow[]> {
     expectedDelivery: o.expectedDelivery,
     aiReasoning: o.aiReasoning,
     orderDate: o.orderDate,
+    imageUrl: o.product.imageUrl,
   }));
 }
 
@@ -353,6 +358,7 @@ export interface PurchaseOrderRow {
   orderDate: Date;
   status: string;
   expectedDelivery: Date | null;
+  imageUrl: string | null;
 }
 
 export async function listPurchaseOrders(search?: string, status?: string): Promise<PurchaseOrderRow[]> {
@@ -368,7 +374,7 @@ export async function listPurchaseOrders(search?: string, status?: string): Prom
       ],
     },
     include: { product: true, supplier: true },
-    orderBy: { createdAt: 'desc' }, // reference row order (2AF140 first)
+    orderBy: { orderNumber: 'asc' }, // reference row order (2AF134 first)
   });
   return orders.map((o) => ({
     id: o.id,
@@ -384,6 +390,7 @@ export async function listPurchaseOrders(search?: string, status?: string): Prom
     orderDate: o.orderDate,
     status: o.status,
     expectedDelivery: o.expectedDelivery,
+    imageUrl: o.product.imageUrl,
   }));
 }
 
@@ -439,7 +446,7 @@ export async function getSupplierDetail(id: string): Promise<SupplierDetailData 
     where: { id },
     include: {
       products: { orderBy: { createdAt: 'desc' } },
-      orders: { orderBy: { createdAt: 'desc' }, take: 5 },
+      orders: { orderBy: { orderNumber: 'asc' }, take: 10 },
     },
   });
   if (!supplier) return null;
@@ -462,12 +469,14 @@ export async function getSupplierDetail(id: string): Promise<SupplierDetailData 
     productCount: supplier.products.length,
     completedOrders,
     totalPOs,
-    avgLeadTimeDays: supplier.leadTimeDays,
+    avgLeadTimeDays: supplierAvgLeadTimeDays(supplier.products),
     products: supplier.products.map((p) => ({
       id: p.id,
       name: p.name,
       stock: p.stock,
-      status: p.stock > p.reorderPoint ? 'Healthy' : 'Low Stock',
+      // Reference health bands (observed live): stock 0 → Out of Stock,
+      // stock < 10 → Medium, otherwise Healthy (e.g. Full Frame at 8 → Medium).
+      status: p.stock <= 0 ? 'Out of Stock' : p.stock < 10 ? 'Medium' : 'Healthy',
     })),
     recentOrders: supplier.orders.map((o) => ({
       id: o.id,
@@ -489,24 +498,27 @@ export interface MarketTrendsSummary {
 }
 
 export async function getMarketTrends(): Promise<MarketTrendsSummary> {
-  const rows = await db.marketTrend.findMany({ orderBy: { changePct: 'desc' } });
-  const trends: MarketTrendView[] = rows.map((t) => ({
-    id: t.id,
-    category: t.category,
-    trendScore: t.trendScore,
-    changePct: t.changePct,
-    direction: t.direction as 'Up' | 'Down' | 'Stable',
-    quarter: t.quarter,
-    description: t.description,
-    source: t.source,
-  }));
+  const rows = await db.marketTrend.findMany();
+  const trends: MarketTrendView[] = sortMarketTrends(
+    rows.map((t) => ({
+      id: t.id,
+      category: t.category,
+      trendScore: t.trendScore,
+      changePct: t.changePct,
+      direction: t.direction as 'Up' | 'Down' | 'Stable',
+      quarter: t.quarter,
+      description: t.description,
+      source: t.source,
+    })),
+  );
   const avg = trends.length > 0 ? Math.round(trends.reduce((s, t) => s + t.trendScore, 0) / trends.length) : 0;
+  const topGainer = trends.reduce((best, t) => (t.changePct > best.changePct ? t : best), trends[0]!);
   return {
     trends,
     avgTrendScore: avg,
     risingCount: trends.filter((t) => t.direction === 'Up').length,
     decliningCount: trends.filter((t) => t.direction === 'Down').length,
-    topGainerPct: trends.length > 0 ? trends[0]!.changePct : 0,
+    topGainerPct: trends.length > 0 ? topGainer.changePct : 0,
   };
 }
 

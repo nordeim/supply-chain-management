@@ -35,14 +35,22 @@ test.describe('Suppliers', () => {
 
     await expect(page.getByText('Back to Suppliers')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Nordic Supply Co.', level: 1 })).toBeVisible();
-    await expect(page.getByText('Scandinavian distributor')).toBeVisible();
+    // Reference shows the notes both in the hero card (gray) and the facts
+    // grid (black) — the locator must be scoped to exactly one of them.
+    await expect(page.locator('section[aria-label="Nordic Supply Co."]').getByText('Scandinavian distributor')).toBeVisible();
+    await expect(page.getByText('Scandinavian distributor').nth(1)).toBeVisible();
 
     for (const stat of ['Products', 'Completed Orders', 'Total POs', 'Avg Lead Time']) {
       await expect(page.getByText(stat, { exact: true }).first()).toBeVisible();
     }
+    // Nordic has exactly one product (CAM-003, lead 14 days): the reference
+    // derives Avg Lead Time from the products, not the supplier's own figure.
+    await expect(page.getByText('14 days')).toBeVisible();
     await expect(page.getByText('Reliability Score')).toBeVisible();
     await expect(page.getByText('Payment Terms')).toBeVisible();
     await expect(page.getByText('Recent Purchase Orders')).toBeVisible();
+    // Every seeded PO is booked against Electronics Direct, so Nordic's
+    // recent-orders list stays empty in the reference dataset.
     await expect(page.getByText('No purchase orders yet')).toBeVisible();
   });
 });

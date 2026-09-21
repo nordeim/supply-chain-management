@@ -28,6 +28,13 @@ import { defineConfig, devices } from "@playwright/test";
 const PORT = Number(process.env.E2E_PORT ?? 3002);
 const baseURL = process.env.E2E_BASE_URL ?? `http://127.0.0.1:${PORT}`;
 
+// `next start` boots with NODE_ENV=production, where the env contract
+// (src/lib/env.ts) refuses an empty SESSION_SECRET — the sign-in round-trip
+// would 500 before any cookie is signed. CI sets SESSION_SECRET at the job
+// level (.github/workflows/ci.yml); this fallback keeps bare local runs of
+// `bun run test:e2e` self-contained. It is NOT a deployment secret.
+const SESSION_SECRET = process.env.SESSION_SECRET?.trim() || 'e2e-local-not-a-deployment-secret';
+
 export default defineConfig({
   testDir: "./e2e",
   timeout: 30_000,
@@ -54,7 +61,7 @@ export default defineConfig({
   webServer: process.env.E2E_BASE_URL
     ? undefined
     : {
-        command: `npx next start --port ${PORT}`,
+        command: `SESSION_SECRET='${SESSION_SECRET}' npx next start --port ${PORT}`,
         url: baseURL,
         reuseExistingServer: true,
         timeout: 90_000,

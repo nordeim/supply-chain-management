@@ -63,9 +63,11 @@ export function HeaderBar({ user }: { user: SessionUser | null }) {
         </Link>
         <Link
           href="/"
-          className="flex h-[50px] items-center rounded-[32px] bg-[#111111] px-4 text-base font-normal font-brand text-white"
+          className="flex h-[50px] items-center rounded-[32px] bg-[#111111] px-4 font-brand"
         >
-          SupplyChain
+          <p className="text-sm font-normal leading-[18px] text-white">
+            <span className="font-semibold">Supply</span>Chain
+          </p>
         </Link>
         <Link
           href="/"
@@ -75,7 +77,7 @@ export function HeaderBar({ user }: { user: SessionUser | null }) {
           {isDashboard ? (
             <h1 className="text-base font-normal font-brand leading-[20px] text-[#0F1729]">Inventory Manager</h1>
           ) : (
-            <span className="text-base font-normal font-brand leading-[20px] text-[#0F1729]">Inventory Manager</span>
+            <p className="text-sm font-normal font-brand leading-[18px] text-[#0F1729]">Inventory Manager</p>
           )}
         </Link>
       </div>
@@ -98,7 +100,7 @@ export function HeaderBar({ user }: { user: SessionUser | null }) {
           >
             <span
               aria-hidden
-              className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full bg-[#111111] text-sm font-semibold text-white"
+              className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full bg-[#111111] text-sm font-normal font-brand text-white"
               title={user.name ?? user.email}
             >
               {initial}

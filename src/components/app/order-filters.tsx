@@ -39,8 +39,8 @@ export function OrderFilters({ initialSearch, initialStatus }: { initialSearch: 
 
   return (
     <div className="flex flex-wrap items-center gap-2" data-pending={isPending ? 'true' : undefined}>
-      <form onSubmit={handleSubmit} className="relative">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+      <form onSubmit={handleSubmit} className="relative min-w-0 flex-1">
+        <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#343434]" aria-hidden />
         {/* name="q": pre-hydration Enter → implicit GET submission carries the
             query (graceful degradation). Inert post-hydration (preventDefault). */}
         <Input
@@ -50,12 +50,15 @@ export function OrderFilters({ initialSearch, initialStatus }: { initialSearch: 
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search"
           aria-label="Search purchase orders"
-          className="h-9 w-56 rounded-full bg-[#f3f4f6] pl-9"
+          className="h-[34px] w-full rounded-[40px] border-none bg-secondary pl-10 font-brand text-sm"
         />
       </form>
 
       <Select value={initialStatus} onValueChange={handleStatus}>
-        <SelectTrigger aria-label="Filter by status" className="h-9 w-44 rounded-full bg-[#f3f4f6] border-none">
+        <SelectTrigger
+          aria-label="Filter by status"
+          className="h-[34px] w-44 shrink-0 rounded-[40px] border-none bg-secondary font-brand text-sm"
+        >
           <SelectValue />
         </SelectTrigger>
         <SelectContent>

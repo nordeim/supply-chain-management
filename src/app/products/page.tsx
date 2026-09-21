@@ -1,8 +1,14 @@
 import Link from 'next/link';
-import { Search } from 'lucide-react';
 import { listProducts, listCategories } from '@/server/queries';
 import { ProductsFilters } from '@/components/app/products-filters';
-import { Badge } from '@/components/ui/badge';
+import {
+  ListCard,
+  ListHeaderBar,
+  ListRow,
+  NumericCell,
+  ProductCell,
+  TextCell,
+} from '@/components/app/list-pattern';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,8 +17,10 @@ interface PageProps {
 }
 
 /**
- * Products — the catalog table with search, category, and status filters
- * (URL-driven so filters are shareable and back-button friendly).
+ * Products — the reference's list pattern: filter row above, one white card
+ * with the title + count inside, a black column bar, and gray pill rows
+ * (40x40 product images, responsive column hiding per breakpoint) that click
+ * through to the product detail page.
  */
 export default async function ProductsPage({ searchParams }: PageProps) {
   const params = await searchParams;
@@ -30,75 +38,66 @@ export default async function ProductsPage({ searchParams }: PageProps) {
   const rows = lowStockOnly ? products.filter((p) => p.stock <= p.reorderPoint) : products;
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <ProductsFilters
-          categories={categories}
-          initialSearch={search}
-          initialCategory={category}
-          initialStatus={status}
-          lowStockOnly={lowStockOnly}
-        />
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Products</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {rows.length} {rows.length === 1 ? 'Product' : 'Products'}
-            {lowStockOnly && ' at or below reorder point'}
-          </p>
-        </div>
-      </div>
+    <div className="flex flex-col gap-4">
+      <ProductsFilters
+        categories={categories}
+        initialSearch={search}
+        initialCategory={category}
+        initialStatus={status}
+        lowStockOnly={lowStockOnly}
+      />
 
       {rows.length === 0 ? (
         <p className="rounded-[32px] bg-white p-6 text-sm text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
           No products match the current filters. Clear the search or choose a different category.
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-[32px] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
-          <table className="w-full min-w-[820px] text-sm">
-            <thead>
-              <tr className="border-b border-black/5 text-left text-sm font-semibold text-foreground">
-                <th scope="col" className="px-5 py-4">Product</th>
-                <th scope="col" className="px-5 py-4">SKU</th>
-                <th scope="col" className="px-5 py-4">Category</th>
-                <th scope="col" className="px-5 py-4 text-right">Stock</th>
-                <th scope="col" className="px-5 py-4 text-right">Reorder Pt.</th>
-                <th scope="col" className="px-5 py-4">Status</th>
-                <th scope="col" className="px-5 py-4 text-right">Velocity</th>
-                <th scope="col" className="px-5 py-4">Supplier</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((product) => {
-                const low = product.stock <= product.reorderPoint;
-                return (
-                  <tr
-                    key={product.id}
-                    className="border-b border-black/5 transition-colors last:border-0 hover:bg-[#efefef]"
+        <ListCard
+          title="Products"
+          count={`${rows.length} ${rows.length === 1 ? 'Product' : 'Products'}`}
+          ariaLabel="Product catalog"
+        >
+          <ListHeaderBar>
+            <span className="min-w-0 flex-[3] basis-0">Product</span>
+            <span className="hidden min-w-0 flex-[1.5] basis-0 lg:inline-flex">SKU</span>
+            <span className="hidden min-w-0 flex-[1.5] basis-0 sm:inline-flex">Category</span>
+            <span className="min-w-0 flex-1 basis-0">Stock</span>
+            <span className="hidden min-w-0 flex-1 basis-0 md:inline-flex">Reorder Pt.</span>
+            <span className="min-w-0 flex-[1.5] basis-0">Status</span>
+            <span className="hidden min-w-0 flex-1 basis-0 sm:inline-flex">Velocity</span>
+            <span className="hidden min-w-0 flex-1 basis-0 lg:inline-flex">Supplier</span>
+          </ListHeaderBar>
+
+          <div className="flex flex-col gap-4 pt-4">
+            {rows.map((product) => {
+              const low = product.stock <= product.reorderPoint;
+              return (
+                <ListRow key={product.id} ariaLabel={`Open ${product.name}`}>
+                  <Link
+                    href={`/products/${product.id}`}
+                    className="flex w-full cursor-pointer items-center gap-4"
+                    aria-label={`Open ${product.name}`}
                   >
-                    <td className="px-5 py-3.5">
-                      <Link href={`/products/${product.id}`} className="font-semibold underline-offset-2 hover:underline">
-                        {product.name}
-                      </Link>
-                    </td>
-                    <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{product.sku}</td>
-                    <td className="px-5 py-3.5">{product.category}</td>
-                    <td className={`px-5 py-3.5 text-right font-semibold ${low ? 'text-destructive' : ''}`}>
-                      {product.stock}
-                    </td>
-                    <td className="px-5 py-3.5 text-right text-muted-foreground">{product.reorderPoint}</td>
-                    <td className="px-5 py-3.5">
-                      <Badge variant="outline" className="rounded-full border-[#dfdfdf] font-medium text-[#343434]">
+                    <ProductCell name={product.name} imageUrl={product.imageUrl} />
+                    <TextCell className="hidden lg:inline-flex">{product.sku}</TextCell>
+                    <TextCell className="hidden sm:inline-flex">{product.category}</TextCell>
+                    <NumericCell className={low ? 'text-destructive' : ''}>{product.stock}</NumericCell>
+                    <NumericCell className="hidden md:inline-flex">{product.reorderPoint}</NumericCell>
+                    <span className="min-w-0 flex-[1.5] basis-0">
+                      <span className="inline-flex items-center rounded-[40px] bg-white px-2 font-brand text-sm font-normal text-[#111111]">
                         {product.status}
-                      </Badge>
-                    </td>
-                    <td className="px-5 py-3.5 text-right">{product.velocityPerDay.toFixed(1)} / day</td>
-                    <td className="px-5 py-3.5 text-muted-foreground">{product.supplierName ?? '—'}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                      </span>
+                    </span>
+                    <NumericCell className="hidden sm:inline-flex">
+                      {product.velocityPerDay.toFixed(1)} / day
+                    </NumericCell>
+                    <TextCell className="hidden lg:inline-flex">{product.supplierName ?? '—'}</TextCell>
+                  </Link>
+                </ListRow>
+              );
+            })}
+          </div>
+        </ListCard>
       )}
     </div>
   );

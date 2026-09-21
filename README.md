@@ -28,7 +28,7 @@ The AI Suggestions engine watches each SKU's stock position against its reorder 
 | 📱 | **Mobile navigation** | The reference's floating frosted bottom pill (42px container, backdrop blur, white 48px active pill with label, 34px #DFDFDF icon circles) below `lg`; the desktop rail takes over at `lg` — shared item model in `nav-items.tsx` |
 | 📦 | **Products** | Searchable/filterable catalog with stock, reorder points, live velocity, and supplier per SKU, in reference row order |
 | 🔍 | **Product detail** | Stat tiles, replenishment policy, stock-level history chart, 30-day demand forecast with confidence band, purchase-order history, one-decimal cost/price tiles |
-| 🤖 | **AI Suggestions** | 11 engine-generated replenishment recommendations (table layout, reference totals/dates) with expandable reasoning — informational, like the reference |
+| 🤖 | **AI Suggestions** | 11 engine-generated replenishment recommendations (reference list-pattern card: black header bar + gray pill rows) with expandable reasoning — informational, like the reference |
 | 🛒 | **Procurement** | 15 purchase orders with status filter, MM.DD.YY dates, and a click-through Order Details side panel (product, qty, total, unit cost, supplier, date) |
 | 🏭 | **Suppliers** | Partner scorecards (Nordic first) that click through to per-supplier detail routes: stats, terms, products, recent POs |
 | 📈 | **Market Trends** | 6 category demand signals (score gauges, quarter-over-quarter change, sources) with summary stats |
@@ -49,7 +49,7 @@ The AI Suggestions engine watches each SKU's stock position against its reorder 
 | ORM | Prisma | 6 | Schema, migrations, typed client |
 | Database | SQLite (file) | 3 | Zero-config local persistence (PostgreSQL-ready schema) |
 | Validation | Zod | 4 | Action input validation |
-| Unit tests | Vitest | 5 | Domain-layer regression (103 tests, TDD, coverage-gated) — includes the db-path URL contract and the shared nav model |
+| Unit tests | Vitest | 5 | Domain-layer regression (111 tests, TDD, coverage-gated) — includes the db-path URL contract, the shared nav model, and the reference display-order rules |
 | E2E tests | Playwright | 1.63 | Golden-path browser suite against the production build (38 tests; chromium + webkit green on CI, incl. 7 mobile-viewport specs) |
 | Runtime | Bun | ≥1.1 | Install, run, scripts |
 
@@ -111,8 +111,8 @@ flowchart TB
 │   │   ├── 📄 layout.tsx           ← root shell (Inter, session, AppShell)
 │   │   ├── 📄 page.tsx             ← Dashboard (asymmetric KPI grid, dot plot, stock feed)
 │   │   ├── 📂 products/            ← catalog + [id] detail
-│   │   ├── 📂 ai-suggestions/      ← engine recommendations (table layout)
-│   │   ├── 📂 purchase-orders/     ← procurement table + Order Details panel
+│   │   ├── 📂 ai-suggestions/      ← engine recommendations (list-pattern card)
+│   │   ├── 📂 purchase-orders/     ← procurement list-pattern rows + Order Details panel
 │   │   ├── 📂 suppliers/           ← scorecards + [id] detail route
 │   │   ├── 📂 market-trends/       ← category signals
 │   │   └── 📂 api/                 ← health + suppliers endpoints
@@ -171,7 +171,7 @@ Requires **Bun ≥ 1.1** (or Node ≥ 20 with `npm` substitutions) and any moder
 
 ```bash
 bun run lint && bun run typecheck   # both exit 0
-bun run test                        # 85 domain/env unit tests pass
+bun run test                        # 111 domain/env/reference-order unit tests pass
 bun run test:coverage               # same suite + coverage thresholds (95/85/95/95)
 bun run verify:analytics            # reference KPI checks pass
 curl http://localhost:3000/api/health
@@ -196,7 +196,7 @@ curl http://localhost:3000/api/health
 | Check | Command | Notes |
 |-------|---------|-------|
 | Static gates | `bun run lint && bun run typecheck` | No DB required |
-| Unit (TDD) | `bun run test` | 103 Vitest tests — money formatting, ActionResult, session guard, env contract, db-path resolution, nav model, velocity windows, reorder math, 30-day deltas, forecast/ledger replay, gauge/scale helpers, reference reasoning sentence |
+| Unit (TDD) | `bun run test` | 111 Vitest tests — money formatting, ActionResult, session guard, env contract, db-path resolution, nav model, reference display orders (market-trend rank, supplier avg lead time), velocity windows, reorder math, 30-day deltas, forecast/ledger replay, gauge/scale helpers, reference reasoning sentence |
 | KPI parity | `bun run verify:analytics` | Asserts the seeded ledger reproduces reference values: velocities 1.5/1.2/0.8/0.7/0.4/0.0, low-stock −1, 11 suggestions, inventory value $202,610 (cost basis), movers badges +2/−1/0/+1/+2 |
 | E2E | `bun run build && bun run test:e2e` | 38 Playwright tests against `next start` (not dev): every page, sign-in/out, search, filters, Order Details panel, supplier detail, reference row/data assertions, plus 7 mobile-viewport specs pinning the floating bottom-nav pill (renders, navigates, active states, breakpoint swap at `lg`, no horizontal overflow at 390px). CI runs the suite on both chromium and webkit as **blocking** jobs; the mobile specs execute under both engines at the iPhone 14 viewport, so hosted CI covers mobile Safari. `bun run e2e:summary` renders the JUnit results as a totals/failure report (CI also publishes them as public run annotations). Specs that act on SSR-rendered inputs wrap interact→assert in `toPass()` — Playwright actions don't retry |
 | CI results | run page annotations | E2E failures appear as public annotations on the GitHub Actions run page (no login needed) — test name, file:line, and the first lines of each failure |
@@ -238,7 +238,7 @@ Before going public: set a strong `SESSION_SECRET`, back or migrate the SQLite f
 | All pages + interactions | ✅ Complete | 8 routes incl. supplier detail, all reference components |
 | Mutations & auth | ✅ Complete | Server actions, status machine, scrypt auth, session cookies |
 | Documentation set | ✅ Complete | README, AGENTS, CLAUDE, Project_Architecture_Document, .env.example |
-| Test suites | ✅ Complete | Vitest (85 unit, TDD, coverage thresholds), Playwright (31 chromium E2E), analytics verifier, GitHub Actions CI |
+| Test suites | ✅ Complete | Vitest (111 unit, TDD, coverage thresholds), Playwright (38 chromium E2E), analytics verifier, GitHub Actions CI |
 | Session 2 parity remediation | ✅ Complete | Reference tokens (#FF9000/#EFEFEF/32px), asymmetric KPI grid, dot-plot chart, image stock feed, reference data ($202,610), informational PO panel, supplier detail routes |
 | Hardening (session 4, PAD v1.2) | ✅ Complete | Session guard on admin actions (ADR-008), wired env contract (production refuses insecure SESSION_SECRET), coverage thresholds (95/85/95/95), GitHub Actions CI |
 | WebKit diagnosis & green (session 5, PAD v1.3) | ✅ Complete | Public E2E failure annotations (JUnit → run-page `::error` commands), request-protocol `Secure` cookie flag (fixes WebKit dropping the session cookie on plain-HTTP), node24 CI actions, webkit E2E green on hosted CI (31/31) |
@@ -247,6 +247,7 @@ Before going public: set a strong `SESSION_SECRET`, back or migrate the SQLite f
 | WebKit promotion to blocking gate (session 8, PAD v1.5) | ✅ Complete | `continue-on-error` removed from the webkit CI job after three consecutive post-fix green runs (#8/#9/#10); job renamed `E2E (webkit)` — both E2E jobs now block main, public-annotation diagnosability unchanged |
 | Verified E2E | ✅ Complete | Browser-verified flows, screenshots in `docs/screenshots/` |
 | Session 9 — mobile navigation + db-path contract (PAD v1.6) | ✅ Complete | Reference bottom-nav pill (frosted, active-label, icon circles, `lg` swap), header mobile collapse, KPI mobile layout, reference glyphs inlined; `src/lib/db-path.ts` anchors `DATABASE_URL` at the repo root for server/seed/CLI; PO dates pinned to the reference capture day; stale-ledger self-heal; type gate restored in builds; 103 unit / 38 E2E tests |
+| Session 10 — list-pattern parity + reference ordering (PAD v1.7) | ✅ Complete | Shared `list-pattern.tsx` (card-with-title-inside, black header bar, gray pill rows, product images, Hanken Grotesk numerals) across Products/AI-Suggestions/Procurement; reference display orders (`orderNumber asc` procurement, fixed trend order via `src/domain/reference-order.ts`); seed aligned to reference values (lead times, descriptions, supplier phones/notes, `location: null`); shell geometry (16px top inset, 80px mobile clearance); market-trends 3-col + suppliers 4-col + product/supplier detail rebuilds; Order Details Approval Date row; E2E re-pinned + local-run `SESSION_SECRET` fallback; 111 unit / 38 E2E tests; `supply-chain-management_SKILL.md` + `docs/DEPLOYMENT.md` added |
 
 ## Troubleshooting
 

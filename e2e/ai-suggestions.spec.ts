@@ -1,15 +1,16 @@
 import { expect, test } from '@playwright/test';
 
 /**
- * AI Suggestions E2E — 11 pending suggestions, reference row order, costs,
- * delivery dates, and the canonical reasoning sentence.
+ * AI Suggestions E2E — 11 pending suggestions in the reference row order
+ * (CAM-002 first), costs, delivery dates, and the canonical reasoning
+ * sentence, inside the reference's list-pattern card.
  */
 test.describe('AI Suggestions', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/ai-suggestions');
   });
 
-  test('shows the 11 pending suggestions with table headers', async ({ page }) => {
+  test('shows the 11 pending suggestions with the list card headers', async ({ page }) => {
     await expect(page.getByRole('heading', { name: 'AI Suggestions' })).toBeVisible();
     await expect(page.getByText('11 pending suggestions')).toBeVisible();
 
@@ -18,11 +19,14 @@ test.describe('AI Suggestions', () => {
     }
   });
 
-  test('first row matches the reference suggestion (CAM-001, $116,000)', async ({ page }) => {
-    const firstRow = page.locator('article').first();
-    await expect(firstRow).toContainText('Full Frame Sensor Mirrorless Camera');
-    await expect(firstRow).toContainText('ELEC-CAM-001');
-    await expect(firstRow).toContainText('$116,000');
+  test('first row matches the reference suggestion order (CAM-002, $71,000)', async ({ page }) => {
+    // Reference order is createdAt desc of the seeded suggestions:
+    // CAM-002 (2AF13C) leads, CAM-001 only appears 6 rows later.
+    const firstRow = page.getByRole('group', { name: 'Suggestion ELEC-CAM-002' }).first();
+    await expect(firstRow).toBeVisible();
+    await expect(firstRow).toContainText('APS-C Sensor Mirrorless Camera');
+    await expect(firstRow).toContainText('ELEC-CAM-002');
+    await expect(firstRow).toContainText('$71,000');
     await expect(firstRow).toContainText('2026-07-06');
     await expect(firstRow).toContainText('Suggested: 2026-07-06');
   });

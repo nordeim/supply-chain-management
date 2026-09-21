@@ -98,6 +98,12 @@ export function OrderDetailsPanel({
               <dt className="text-muted-foreground">Date</dt>
               <dd className="font-semibold">{formatTableDate(order.orderDate)}</dd>
             </div>
+            {order.status !== 'Suggested' && (
+              <div className="flex items-center justify-between">
+                <dt className="text-muted-foreground">Approval Date</dt>
+                <dd className="font-semibold">{formatTableDate(order.orderDate)}</dd>
+              </div>
+            )}
           </dl>
         </div>
       </aside>

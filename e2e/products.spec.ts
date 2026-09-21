@@ -1,8 +1,9 @@
 import { expect, test } from '@playwright/test';
 
 /**
- * Products & catalog E2E — reference row order (newest first), table values,
- * search filter, and the product detail page layout.
+ * Products & catalog E2E — reference row order (newest first) inside the
+ * list-pattern card, column values, search filter, and the product detail
+ * page layout.
  */
 test.describe('Products', () => {
   test.beforeEach(async ({ page }) => {
@@ -13,9 +14,9 @@ test.describe('Products', () => {
     await expect(page.getByRole('heading', { name: 'Products' })).toBeVisible();
     await expect(page.getByText('6 Products', { exact: false })).toBeVisible();
 
-    const firstRow = page.locator('tbody tr').first();
+    const firstRow = page.locator('div[aria-label^="Open "]').first();
     await expect(firstRow).toContainText('ELEC-LENS-003');
-    const lastRow = page.locator('tbody tr').last();
+    const lastRow = page.locator('div[aria-label^="Open "]').last();
     await expect(lastRow).toContainText('ELEC-CAM-001');
 
     for (const sku of ['ELEC-LENS-003', 'ELEC-LENS-001', 'ELEC-LENS-002', 'ELEC-CAM-003', 'ELEC-CAM-002', 'ELEC-CAM-001']) {
