@@ -20,7 +20,7 @@ export function parseServerEnv(source: Readonly<Record<string, string | undefine
 
   const databaseUrl = source.DATABASE_URL?.trim();
   if (!databaseUrl) {
-    errors.push('DATABASE_URL is required (e.g. "file:./db/custom.db" for local SQLite). See .env.example.');
+    errors.push('DATABASE_URL is required (e.g. "file:../db/custom.db" for local SQLite, resolved against prisma/). See .env.example.');
   }
 
   const sessionSecret = source.SESSION_SECRET?.trim() ?? '';

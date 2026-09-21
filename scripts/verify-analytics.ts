@@ -12,8 +12,9 @@ import {
   velocityPerDay,
   buildLedgerDaySeries,
 } from '../src/domain/replenishment';
+import { resolveDatabaseUrl } from '../src/lib/db-path';
 
-const db = new PrismaClient();
+const db = new PrismaClient({ datasourceUrl: resolveDatabaseUrl(process.env.DATABASE_URL) });
 
 async function main(): Promise<void> {
   const products = await db.product.findMany({ include: { supplier: true, movements: true } });
