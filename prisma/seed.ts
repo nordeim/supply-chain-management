@@ -17,13 +17,27 @@
 import { PrismaClient } from '@prisma/client';
 import { randomBytes, scryptSync } from 'node:crypto';
 import { buildAiReasoning, daysOfCover, projectedStockAtLeadTime, velocityPerDay } from '../src/domain/replenishment';
+import { resolveDatabaseUrl } from '../src/lib/db-path';
 
-const db = new PrismaClient();
+const db = new PrismaClient({ datasourceUrl: resolveDatabaseUrl(process.env.DATABASE_URL) });
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const now = new Date();
 const daysAgo = (n: number, hour = 10): Date => {
   const d = new Date(now.getTime() - n * DAY_MS);
+  d.setUTCHours(hour, 0, 0, 0);
+  return d;
+};
+
+/** The reference app's capture date. Purchase-order dates (and the market
+ *  trend quarter) are pinned to it — the live reference displays these as
+ *  fixed dates (07.06.26, 07.12.26, Q3 2026) that never drift, so the
+ *  clone must render the same dates on every future day instead of sliding
+ *  them with `now`. The movement ledger, in contrast, stays `now`-relative
+ *  because velocity/forecast math needs live windows. */
+const REFERENCE_ANCHOR = new Date('2026-09-20T09:00:00.000Z');
+const anchorDaysAgo = (n: number, hour = 9): Date => {
+  const d = new Date(REFERENCE_ANCHOR.getTime() - n * DAY_MS);
   d.setUTCHours(hour, 0, 0, 0);
   return d;
 };
@@ -412,9 +426,33 @@ async function main(): Promise<void> {
     productIdBySku.set(p.sku, record.id);
 
     // Ledger: create only when the product has no movements yet (re-running
-    // the seed must never wipe runtime history the user created).
-    const existingMovements = await db.stockMovement.count({ where: { productId: record.id } });
-    if (existingMovements === 0) {
+    // the seed must never wipe runtime history the user created). The six
+    // seeded products' engineered ledgers are ALSO rebuilt when their newest
+    // sale no longer falls on today (UTC): the movers badges are day-bucketed
+    // 30d-vs-prior-30d windows (src/domain/replenishment.ts salesDelta30d),
+    // so a ledger that has crossed UTC midnight drifts off the reference
+    // +2/-1/0/+1/+2 values. Rebuilding re-anchors the demo data to the
+    // current day and keeps `db:seed && verify:analytics` self-healing
+    // (Product.stock is reset by the upsert above, so the rebuilt ledger
+    // stays consistent with the stored stock).
+    const existing = await db.stockMovement.findMany({
+      where: { productId: record.id },
+      select: { reason: true, delta: true, createdAt: true },
+    });
+    const newestSale = existing.reduce<Date | null>((acc, m) => {
+      if (m.reason !== 'sale' || m.delta >= 0) return acc;
+      return acc === null || m.createdAt > acc ? m.createdAt : acc;
+    }, null);
+    const startOfToday = new Date();
+    startOfToday.setUTCHours(0, 0, 0, 0);
+    const staleLedger = newestSale !== null && newestSale < startOfToday;
+    if (existing.length === 0 || staleLedger) {
+      if (staleLedger) {
+        await db.stockMovement.deleteMany({ where: { productId: record.id } });
+        console.log(
+          `  product ${p.sku}: ledger crossed UTC midnight (newest sale ${newestSale!.toISOString().slice(0, 10)}) — rebuilt for today`,
+        );
+      }
       const movements = buildLedger({ sku: p.sku, ...ledger });
       await db.stockMovement.createMany({
         data: movements.map((m) => ({
@@ -442,7 +480,7 @@ async function main(): Promise<void> {
       include: { movements: true },
     });
     const supplier = await db.supplier.findUniqueOrThrow({ where: { id: supplierId } });
-    const orderDate = daysAgo(po.daysAgo, 9);
+    const orderDate = anchorDaysAgo(po.daysAgo, 9);
     // Reference parity: Suggested orders display their order date as the
     // Delivery date (2026-07-06); approved history lands order date + lead time.
     const delivery =
@@ -489,7 +527,7 @@ async function main(): Promise<void> {
         aiReasoning,
         orderDate,
         expectedDelivery: delivery,
-        createdAt: daysAgo(po.createdDaysAgo, 9),
+        createdAt: anchorDaysAgo(po.createdDaysAgo, 9),
       },
       create: {
         orderNumber: po.orderNumber,
@@ -501,14 +539,15 @@ async function main(): Promise<void> {
         aiReasoning,
         orderDate,
         expectedDelivery: delivery,
-        createdAt: daysAgo(po.createdDaysAgo, 9),
+        createdAt: anchorDaysAgo(po.createdDaysAgo, 9),
       },
     });
   }
   console.log(`  purchase orders: ${PURCHASE_ORDERS.length}`);
 
-  // 4. Market trends (natural key: category)
-  const quarter = `Q${Math.floor((now.getUTCMonth() + 3) / 3)} ${now.getUTCFullYear()}`;
+  // 4. Market trends (natural key: category). The quarter is pinned to the
+  //    reference capture ("Q3 2026") — see REFERENCE_ANCHOR above.
+  const quarter = `Q${Math.floor((REFERENCE_ANCHOR.getUTCMonth() + 3) / 3)} ${REFERENCE_ANCHOR.getUTCFullYear()}`;
   for (const t of MARKET_TRENDS) {
     await db.marketTrend.upsert({
       where: { category: t.category },
