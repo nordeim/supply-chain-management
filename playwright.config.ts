@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { defineConfig, devices } from "@playwright/test";
 
 /**
@@ -35,6 +36,21 @@ const baseURL = process.env.E2E_BASE_URL ?? `http://127.0.0.1:${PORT}`;
 // `bun run test:e2e` self-contained. It is NOT a deployment secret.
 const SESSION_SECRET = process.env.SESSION_SECRET?.trim() || 'e2e-local-not-a-deployment-secret';
 
+// A workspace-level .env can leak a stale DATABASE_URL into the shell
+// (the sandbox-env class documented in AGENTS.md "Prisma SQLite URL
+// resolution"): the webServer inherits it, `next start` resolves it
+// absolutely, finds no file, and the boot dies before serving. Strip the
+// inherited value ONLY when it is an absolute `file:` URL pointing at a
+// missing file — the repo `.env` then governs and db-path anchors it at
+// <repo>/db/custom.db. An exported URL that exists, a relative one, or a
+// non-file: (PostgreSQL) URL still wins, preserving the standard
+// precedence rule for intentional overrides.
+const leakedDbUrl = process.env.DATABASE_URL ?? "";
+const stripLeakedDbUrl =
+  leakedDbUrl.startsWith("file:/") && !existsSync(leakedDbUrl.slice("file:".length))
+    ? "env -u DATABASE_URL"
+    : "";
+
 export default defineConfig({
   testDir: "./e2e",
   timeout: 30_000,
@@ -61,7 +77,7 @@ export default defineConfig({
   webServer: process.env.E2E_BASE_URL
     ? undefined
     : {
-        command: `SESSION_SECRET='${SESSION_SECRET}' npx next start --port ${PORT}`,
+        command: `${stripLeakedDbUrl} SESSION_SECRET='${SESSION_SECRET}' npx next start --port ${PORT}`.trim(),
         url: baseURL,
         reuseExistingServer: true,
         timeout: 90_000,

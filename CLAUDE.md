@@ -90,13 +90,13 @@ Optional demo sign-in account (seeded): `demo@supplychain.local` / `demo-passwor
 | `bun run lint` | Run linter |
 | `bun run typecheck` | Type checking |
 | `bun run db:push` / `db:seed` / `verify:analytics` | Database schema / demo data / KPI regression check |
-| `bun run test` / `test:watch` / `test:coverage` | Vitest unit suite (85 tests) / watch mode / with coverage thresholds |
+| `bun run test` / `test:watch` / `test:coverage` | Vitest unit suite (111 tests) / watch mode / with coverage thresholds |
 | `bun run test:e2e` / `e2e:summary` | Playwright E2E (38 tests incl. mobile-viewport specs, `next start` on :3002; build first) / JUnit results → failure report |
 
 ## Testing Strategy
 
 ### Test Pyramid
-- **Unit Tests (Vitest, 103)**: pure functions in `src/**/*.test.ts` — velocity windows, low-stock scoring, reorder-quantity math, forecasting, 30-day sales deltas, ledger day-series replay, money formatting/parsing, ActionResult shape, gauge/tick-scale helpers, the session guard, the reference reasoning sentence, the db-path DATABASE_URL contract, and the shared nav model. TDD: Red → Green → Refactor; tests are colocated with the modules they cover. `bun run test:coverage` enforces 95/85/95/95 thresholds over the pure layer.
+- **Unit Tests (Vitest, 111)**: pure functions in `src/**/*.test.ts` — velocity windows, low-stock scoring, reorder-quantity math, forecasting, 30-day sales deltas, ledger day-series replay, money formatting/parsing, ActionResult shape, gauge/tick-scale helpers, the session guard, the reference reasoning sentence, the db-path DATABASE_URL contract, the shared nav model, and the reference display-order rules (market-trend rank, supplier avg lead time). TDD: Red → Green → Refactor; tests are colocated with the modules they cover. `bun run test:coverage` enforces 95/85/95/95 thresholds over the pure layer.
 - **Integration Check**: `scripts/verify-analytics.ts` — asserts the seeded ledger reproduces the reference KPIs (velocity 1.5/1.2/0.8/0.7/0.4/0.0, low-stock score −1, 11 pending suggestions, inventory value $202,610 cost basis, movers badges +2/−1/0/+1/+2, 90-day series integrity)
 - **E2E (Playwright, 38 tests)**: `e2e/*.spec.ts` run against the production build (`next start`, not dev) — every page renders with reference data, sign-in/out with the seeded demo account, product search, status filter, Order Details side panel, supplier detail navigation, AI reasoning expansion, health probe, plus the mobile bottom-nav pill suite (iPhone 14 viewport via `test.use`, runs under every project so hosted CI covers mobile Safari). CI runs chromium and webkit as **both-blocking** jobs (webkit promoted from exploratory in PAD v1.5 after a 3-run post-fix green streak) on pinned `ubuntu-24.04` runners with public failure annotations on the run page; locally webkit needs system libraries — run `--project=chromium` where unavailable. Hydration-race discipline: specs that act on SSR-rendered inputs wrap interact→assert in `toPass()` because Playwright actions don't retry.
 

@@ -9,7 +9,7 @@ description: >
   extend, debug, onboarding onto, or replicate the codebase.
 version: 1.0.0
 last_updated: 2026-09-21
-project_state: PAD v1.7 · 111 unit / 38 E2E tests green · reference parity verified (Session 10)
+project_state: PAD v1.8 · 111 unit / 38 E2E tests green · reference parity re-verified (Session 11)
 ---
 
 # Supply Chain Management — Engineering Skill
@@ -80,7 +80,7 @@ bun run dev                   # http://localhost:3000
 - A RELATIVE `file:` URL is anchored at `prisma/schema.prisma` by Prisma — so `file:../db/custom.db` = `<repo>/db/custom.db`. This is implemented for the runtime, seed, and analytics verifier by `src/lib/db-path.ts` (module-location walk-up, memoized, never throws), and for the Prisma CLI by `scripts/db-cli.ts` (the `db:push`/`db:migrate`/`db:reset` wrapper that exports the absolute URL).
 - An EXPORTED `DATABASE_URL` in the shell wins over `.env` (standard precedence). Sandboxes that leak a workspace-level absolute `DATABASE_URL` will put the file in the wrong place — run DB commands with `env -u DATABASE_URL` (see §9 / §10).
 
-**Config files:** `next.config.ts` (standalone output, types enforced, `devIndicators: false` so the badge never overlaps mobile captures), `tsconfig.json` (strict, `@/*` → `src/*`), `eslint.config.mjs`, `vitest.config.ts` (node env, coverage thresholds), `playwright.config.ts` (chromium + webkit projects, `next start` webServer on 3002 with a local fallback `SESSION_SECRET`), `postcss.config.mjs`.
+**Config files:** `next.config.ts` (standalone output, types enforced, `devIndicators: false` so the badge never overlaps mobile captures), `tsconfig.json` (strict, `@/*` → `src/*`), `eslint.config.mjs`, `vitest.config.ts` (node env, coverage thresholds), `playwright.config.ts` (chromium + webkit projects, `next start` webServer on 3002 with a local fallback `SESSION_SECRET` and a dead-leaked-`DATABASE_URL` guard), `postcss.config.mjs`.
 
 **Health probe:** `GET /api/health` → `{"status":"ok","database":"up"}` — the readiness endpoint for load balancers and capture scripts.
 
@@ -176,7 +176,8 @@ This codebase has few custom hooks (a React 19 + RSC-first design). The interact
 | 11 | Relative `file:` URLs assumed CWD-relative | DB lands one directory above the repo | `src/lib/db-path.ts` anchors at `prisma/`; `scripts/db-cli.ts` for the CLI |
 | 12 | Seed dates relative to seed-day | E2E date assertions fail after UTC midnight | Pin to `REFERENCE_ANCHOR`; rebuild stale ledgers on seed |
 | 13 | `next start` E2E without `SESSION_SECRET` | Sign-in 500s before cookie signing in production mode | CI sets it at job level; playwright.config injects a local fallback |
-| 14 | Weakened gates (`ignoreBuildErrors`, deleted tests) | Silent regressions | Never — the gate exists because the failure existed |
+| 14 | Leaked stale `DATABASE_URL` in the shell kills the E2E webServer | A workspace `.env` exports an absolute `file:` URL to a missing file; `next start` dies at boot (`PrismaClientInitializationError`) and every spec times out | playwright.config strips it via `env -u` ONLY when the inherited URL is absolute `file:` AND missing — valid overrides still win |
+| 15 | Weakened gates (`ignoreBuildErrors`, deleted tests) | Silent regressions | Never — the gate exists because the failure existed |
 
 ## §10 Debugging Guide
 
@@ -189,6 +190,7 @@ This codebase has few custom hooks (a React 19 + RSC-first design). The interact
 | `verify:analytics` fails after seed edits | Impossible ledger spec | Read the thrown spec name; rebalance restock days/qty in `PRODUCTS[].ledger` |
 | Turbopack "internal error" / stale cache | Corrupt `.next` | `rm -rf .next` and restart dev |
 | E2E webkit missing binaries locally | Sandbox lacks GTK/GStreamer system libs | `npx playwright test --project=chromium` locally; webkit runs on CI |
+| E2E webServer dies: `Unable to open the database file` | Inherited `DATABASE_URL` points at a missing file (leaked env) | Config auto-strips dead ones; otherwise `env -u DATABASE_URL npx playwright test` |
 | E2E auth round-trip fails locally only | webServer booted without a secret (pre-v1.7 config) | Config now injects the fallback — rebuild if on an old checkout |
 | Dashboard KPIs wrong after data edits | Stored stock diverged from ledger | The seed upserts stock AND rebuilds ledgers — re-run it |
 | Screenshot script writes nothing | Page still compiling when captured | Warm routes with curl; sleep after `open` (§9 #3) |

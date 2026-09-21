@@ -15,7 +15,7 @@ Run from the repo root. Bun is the runtime and package manager (never `npm`/`yar
 | `bun run db:push` | Push `prisma/schema.prisma` to SQLite (destructive-tolerant). Routes through `scripts/db-cli.ts`, which anchors the relative `file:` URL at the repo root before invoking the CLI — a raw `prisma db push` would resolve `env()` URLs against the `.env` location and land one level above the repo |
 | `bun run db:seed` | Idempotent seed (natural-key upserts). Demo user creds via `SEED_DEMO_EMAIL`/`SEED_DEMO_PASSWORD` env, safe defaults otherwise. Rebuilds a seeded product's ledger when its newest sale crossed UTC midnight (the movers badges are day-bucketed) and pins PO dates to the reference capture day |
 | `bun run verify:analytics` | Checks the seeded ledger reproduces the reference KPIs (velocity 1.5/1.2/0.8/0.7/0.4/0.0, low-stock −1, 11 suggestions, inventory value **$202,610 cost basis**, movers badges +2/−1/0/+1/+2) |
-| `bun run test` | Vitest unit suite — 103 tests (`src/**/*.test.ts`), no DB required |
+| `bun run test` | Vitest unit suite — 111 tests (`src/**/*.test.ts`), no DB required |
 | `bun run test:watch` | Same suite in watch mode |
 | `bun run test:coverage` | Same suite with v8 coverage + thresholds (95/85/95/95 over `src/domain/**` + `src/lib/env.ts` + `src/lib/db-path.ts`) |
 | `bun run test:e2e` | Playwright E2E — 38 tests in `e2e/` against `next start` on :3002 (needs `bun run build` first; override with `E2E_PORT`/`E2E_BASE_URL`). Includes `mobile-navigation.spec.ts` (iPhone 14 viewport via `test.use` — runs under every project, so hosted CI covers mobile Safari). Webkit runs the same specs green on hosted CI; locally it needs system libs (`--project=chromium` where unavailable) |
