@@ -53,7 +53,11 @@ export function KpiCard({
         <p
           className={cn(
             'text-[32px] leading-none font-light text-[32px] sm:text-[48px] sm:leading-none',
-            variant === 'white' ? 'text-[#111111]' : 'text-white',
+            variant === 'white'
+              ? 'text-[#111111]'
+              : variant === 'black'
+                ? 'text-primary'
+                : 'text-white',
           )}
         >
           {value}

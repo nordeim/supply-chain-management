@@ -2,62 +2,52 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { BarChart3, Boxes, LayoutGrid, ShoppingCart, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
-
-const NAV_ITEMS = [
-  { href: '/', label: 'Dashboard', icon: LayoutGrid },
-  { href: '/products', label: 'Products', icon: Boxes },
-  { href: '/ai-suggestions', label: 'AI Suggestions', icon: SparkleGlyph },
-  { href: '/purchase-orders', label: 'Procurement', icon: ShoppingCart },
-  { href: '/suppliers', label: 'Suppliers', icon: Users },
-  { href: '/market-trends', label: 'Market Trends', icon: BarChart3 },
-] as const;
-
-/** AI Suggestions glyph — the reference's four-point sparkle. */
-function SparkleGlyph(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden {...props}>
-      <path d="M12 2.6c.35 2.9 1.28 5.06 2.8 6.5 1.52 1.44 3.68 2.34 6.47 2.7v1.4c-2.8.36-4.95 1.26-6.47 2.7-1.52 1.44-2.45 3.6-2.8 6.5-.35-2.9-1.28-5.06-2.8-6.5-1.52-1.44-3.68-2.34-6.47-2.7v-1.4c2.8-.36 4.95-1.26 6.47-2.7 1.52-1.44 2.45-3.6 2.8-6.5Z" />
-      <path d="M19.5 3.2c.17 1.16.55 2 1.13 2.55.58.55 1.42.9 2.53 1.06v.6c-1.1.15-1.94.5-2.53 1.06-.57.55-.95 1.4-1.13 2.55-.17-1.16-.55-2-1.13-2.55-.58-.56-1.42-.91-2.53-1.06v-.6c1.1-.16 1.95-.51 2.53-1.06.58-.55.96-1.4 1.13-2.55Z" opacity="0.0" />
-    </svg>
-  );
-}
+import { isNavItemActive, NAV_ITEMS } from './nav-items';
 
 /**
- * Left nav rail — pill items. Active = white 40px pill inside a 60px row;
- * inactive = #DFDFDF pill (reference geometry: 224px rail, radius 32).
+ * Left nav rail — reference geometry (computed-style audit, Session 9):
+ * a 224px rail with 16px left padding and 4px gaps; the ACTIVE section is
+ * a 60px-tall row of two white pieces (a 60x60 rounded-[32px] icon square
+ * plus a growing white label pill), and INACTIVE sections are 40px
+ * #DFDFDF pills (radius 32, 16px padding, 10px icon, 14px/400 label).
+ *
+ * The rail renders at `lg` and up; below that the MobileNav bottom pill
+ * takes over (see mobile-nav.tsx).
  */
 export function NavSidebar() {
   const pathname = usePathname();
 
-  function isActive(href: string): boolean {
-    if (href === '/') return pathname === '/';
-    return pathname === href || pathname.startsWith(`${href}/`);
-  }
-
   return (
-    <nav aria-label="Main navigation" className="hidden md:flex w-[224px] shrink-0 flex-col gap-2">
+    <nav aria-label="Main navigation" className="hidden lg:flex w-[224px] shrink-0 flex-col gap-1 pl-4">
       {NAV_ITEMS.map((item) => {
-        const active = isActive(item.href);
+        const active = isNavItemActive(pathname, item.href);
         const Icon = item.icon;
-        return (
+        return active ? (
           <Link
             key={item.href}
             href={item.href}
-            aria-current={active ? 'page' : undefined}
+            aria-current="page"
+            className="flex h-[60px] w-full items-center gap-1"
+          >
+            <span className="flex h-[60px] w-[60px] shrink-0 items-center justify-center rounded-[32px] bg-white shadow-sm">
+              <Icon className="h-2.5 w-2.5 shrink-0" aria-hidden />
+            </span>
+            <span className="flex h-[60px] grow items-center rounded-[32px] bg-white px-4 shadow-sm">
+              <span className="text-sm font-medium font-brand leading-[18px] text-[#111111]">{item.label}</span>
+            </span>
+          </Link>
+        ) : (
+          <Link
+            key={item.href}
+            href={item.href}
             className={cn(
-              'flex h-[60px] items-center gap-3 rounded-[32px] px-4 text-[15px] transition-colors',
-              active
-                ? 'bg-white font-semibold text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]'
-                : 'bg-secondary font-medium text-secondary-foreground hover:bg-secondary/80',
+              'flex h-10 w-full items-center gap-3 rounded-[32px] bg-secondary px-4',
+              'transition-colors hover:bg-secondary/80',
             )}
           >
-            <Icon
-              className={cn('h-5 w-5 shrink-0', active ? 'text-foreground' : 'text-[#343434]')}
-              aria-hidden
-            />
-            <span className="truncate">{item.label}</span>
+            <Icon className="h-2.5 w-2.5 shrink-0" aria-hidden />
+            <span className="grow text-sm font-normal font-brand leading-[18px] text-[#111111]">{item.label}</span>
           </Link>
         );
       })}

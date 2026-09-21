@@ -3,19 +3,28 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
-import { LogOut, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { NewProductDialog } from '@/components/app/new-product-dialog';
 import { SignInDialog } from '@/components/app/sign-in-dialog';
+import {
+  PlusGlyph,
+  SignInGlyph,
+  SignOutGlyph,
+  UserGlyph,
+} from '@/components/app/nav-items';
 import { signOutAction } from '@/server/actions';
 import type { SessionUser } from '@/lib/session';
 
 /**
- * HeaderBar — brand (logo + SupplyChain + Inventory Manager) on the left,
- * actions (New Product, avatar/Sign In, Sign Out) on the right, cloned from
- * the reference: 50px tall, transparent, "Inventory Manager" is a small
- * (16px, regular) link that doubles as the dashboard's h1 (a paragraph link
- * on every other route, exactly like the reference).
+ * HeaderBar — reference geometry (computed-style audit, Session 9):
+ * a 50px-tall bar with 16px horizontal padding; left = logo (50px black
+ * circle) + "SupplyChain" black pill + "Inventory Manager" orange pill
+ * (both 32px-radius, 16px-padding, 14px/400 labels — the orange label
+ * wraps to two lines on narrow screens); right = "New Product" (orange
+ * 32px-radius pill, hidden below md) and the auth button, which
+ * collapses to a 50px #DFDFDF circle with a 34px black core below md
+ * (avatar initial when signed in, user glyph when signed out) and grows
+ * to a rounded pill at md+.
  */
 export function HeaderBar({ user }: { user: SessionUser | null }) {
   const [newProductOpen, setNewProductOpen] = useState(false);
@@ -36,7 +45,7 @@ export function HeaderBar({ user }: { user: SessionUser | null }) {
 
   return (
     <header className="flex h-[50px] items-center justify-between gap-4 px-4">
-      <div className="flex items-center gap-4 min-w-0">
+      <div className="flex min-w-0 items-center gap-1" aria-label="Workspace switcher">
         <Link
           href="/"
           aria-label="Supply Chain Management home"
@@ -52,57 +61,67 @@ export function HeaderBar({ user }: { user: SessionUser | null }) {
             <path d="M12 8.2 15.6 10.3v4.2L12 16.6l-3.6-2.1v-4.2L12 8.2Z" fill="white" />
           </svg>
         </Link>
-        <div className="flex items-center gap-2" aria-label="Workspace switcher">
-          <Link
-            href="/"
-            className="hidden sm:inline-flex items-center rounded-full bg-[#111111] px-5 py-2 text-sm font-medium text-white"
-          >
-            SupplyChain
-          </Link>
-          <Link
-            href="/"
-            aria-current="page"
-            className="inline-flex items-center rounded-full bg-primary px-5 py-2 text-sm font-medium text-primary-foreground"
-          >
-            {isDashboard ? <h1 className="text-base font-normal">Inventory Manager</h1> : 'Inventory Manager'}
-          </Link>
-        </div>
+        <Link
+          href="/"
+          className="flex h-[50px] items-center rounded-[32px] bg-[#111111] px-4 text-base font-normal font-brand text-white"
+        >
+          SupplyChain
+        </Link>
+        <Link
+          href="/"
+          aria-current="page"
+          className="flex h-[50px] items-center rounded-[32px] bg-primary px-4 text-center"
+        >
+          {isDashboard ? (
+            <h1 className="text-base font-normal font-brand leading-[20px] text-[#0F1729]">Inventory Manager</h1>
+          ) : (
+            <span className="text-base font-normal font-brand leading-[20px] text-[#0F1729]">Inventory Manager</span>
+          )}
+        </Link>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex shrink-0 items-center gap-3">
         <Button
           onClick={() => setNewProductOpen(true)}
-          className="h-[50px] rounded-full bg-primary px-6 text-[15px] font-semibold text-primary-foreground hover:bg-primary/90"
+          className="hidden h-[50px] rounded-[32px] bg-primary px-4 text-sm font-normal font-brand text-[#111111] hover:bg-primary/90 md:inline-flex md:gap-1"
         >
           New Product
-          <Plus className="h-4 w-4" aria-hidden />
+          <PlusGlyph className="-ml-1 h-2 w-2 shrink-0" aria-hidden />
         </Button>
         {user ? (
-          <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            onClick={handleSignOut}
+            disabled={isPending}
+            aria-label="Sign Out"
+            className="flex h-[50px] w-[50px] items-center justify-center rounded-full bg-secondary p-0 hover:bg-secondary/80 md:h-[50px] md:w-auto md:rounded-[100px] md:pl-2 md:pr-4"
+          >
             <span
               aria-hidden
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-[#111111] text-sm font-semibold text-white"
+              className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full bg-[#111111] text-sm font-semibold text-white"
               title={user.name ?? user.email}
             >
               {initial}
             </span>
-            <Button
-              variant="ghost"
-              onClick={handleSignOut}
-              disabled={isPending}
-              className="h-[50px] rounded-full px-4 text-sm text-[#343434] hover:bg-black/5"
-            >
-              <LogOut className="h-4 w-4" aria-hidden />
-              Sign Out
-            </Button>
-          </div>
+            <span className="ml-2 hidden items-center gap-2 md:flex">
+              <SignOutGlyph className="h-[13px] w-[13px] shrink-0" aria-hidden />
+              <span className="text-sm font-normal font-brand leading-none text-[#111111]">Sign Out</span>
+            </span>
+          </Button>
         ) : (
           <Button
             variant="ghost"
             onClick={() => setSignInOpen(true)}
-            className="h-[50px] rounded-full px-4 text-sm font-medium text-[#343434] hover:bg-black/5"
+            aria-label="Sign In"
+            className="flex h-[50px] w-[50px] items-center justify-center rounded-full bg-secondary p-0 hover:bg-secondary/80 md:h-[50px] md:w-auto md:rounded-[100px] md:pl-2 md:pr-4"
           >
-            Sign In
+            <span aria-hidden className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full bg-[#111111]">
+              <UserGlyph className="h-3.5 w-3 shrink-0 text-white" aria-hidden />
+            </span>
+            <span className="ml-2 hidden items-center gap-2 md:flex">
+              <SignInGlyph className="h-[13px] w-[13px] shrink-0" aria-hidden />
+              <span className="text-sm font-normal font-brand leading-none text-[#111111]">Sign In</span>
+            </span>
           </Button>
         )}
       </div>

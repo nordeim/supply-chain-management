@@ -22,9 +22,12 @@ export default async function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* KPI grid — reference geometry: 331px stacked column + two tall cards */}
-      <div className="grid gap-4 lg:grid-cols-[minmax(280px,331fr)_minmax(280px,323fr)_minmax(280px,323fr)]">
-        <div className="flex flex-col gap-4">
+      {/* KPI grid — reference geometry: at lg the stacked black+orange column
+          (331fr) plus the two tall gauge cards sharing the remaining width;
+          below lg the reference stacks [Total SKUs | Inventory Value] as a
+          row, with the two gauge cards full-width (side-by-side from sm). */}
+      <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(280px,331fr)_1fr]">
+        <div className="flex flex-row gap-4 lg:flex-col">
           <KpiCard
             href="/products"
             variant="black"
@@ -32,7 +35,7 @@ export default async function DashboardPage() {
             value={String(data.totalSkus)}
             subtext="Active products"
             dotClassName="bg-white"
-            className="min-h-[192px]"
+            className="min-h-[192px] flex-1"
           />
           <KpiCard
             variant="orange"
@@ -40,40 +43,42 @@ export default async function DashboardPage() {
             value={formatMoneyWhole(data.inventoryValueMinor)}
             subtext="Across active stock"
             dotClassName="bg-white"
-            className="min-h-[192px]"
+            className="min-h-[192px] flex-1"
           />
         </div>
 
-        <KpiCard
-          href="/products?status=low"
-          variant="white"
-          label="Low Stock Alerts"
-          value={String(data.lowStockScore)}
-          subtext="Action needed"
-          dotClassName="bg-destructive"
-          className="flex min-h-[400px] flex-col"
-        >
-          <LowStockScale score={data.lowStockScore} />
-        </KpiCard>
+        <div className="flex flex-col gap-4 sm:flex-row">
+          <KpiCard
+            href="/products?status=low"
+            variant="white"
+            label="Low Stock Alerts"
+            value={String(data.lowStockScore)}
+            subtext="Action needed"
+            dotClassName="bg-destructive"
+            className="flex min-h-[400px] flex-1 flex-col"
+          >
+            <LowStockScale score={data.lowStockScore} />
+          </KpiCard>
 
-        <KpiCard
-          href="/ai-suggestions"
-          variant="white"
-          label="Pending POS"
-          value={String(data.pendingSuggestions)}
-          subtext="POS awaiting approval"
-          dotClassName="bg-primary"
-          className="flex min-h-[400px] flex-col"
-        >
-          <div className="mt-auto">
-            <PendingPosGauge value={data.pendingSuggestions} />
-          </div>
-        </KpiCard>
+          <KpiCard
+            href="/ai-suggestions"
+            variant="white"
+            label="Pending POS"
+            value={String(data.pendingSuggestions)}
+            subtext="POS awaiting approval"
+            dotClassName="bg-primary"
+            className="flex min-h-[400px] flex-1 flex-col"
+          >
+            <div className="mt-auto">
+              <PendingPosGauge value={data.pendingSuggestions} />
+            </div>
+          </KpiCard>
+        </div>
       </div>
 
       {/* Charts row — two white 32px-radius cards */}
       <div className="grid gap-4 xl:grid-cols-2">
-        <section aria-labelledby="inventory-value-heading" className="rounded-[32px] bg-white p-6">
+        <section aria-labelledby="inventory-value-heading" className="min-w-0 rounded-[32px] bg-white p-6">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2.5">
               <span className="h-4 w-4 shrink-0 rounded-full bg-primary" aria-hidden />
@@ -94,7 +99,7 @@ export default async function DashboardPage() {
           </div>
         </section>
 
-        <section aria-labelledby="top-movers-heading" className="rounded-[32px] bg-white p-6">
+        <section aria-labelledby="top-movers-heading" className="min-w-0 rounded-[32px] bg-white p-6">
           <div className="flex items-center gap-2.5">
             <span className="h-4 w-4 shrink-0 rounded-full bg-primary" aria-hidden />
             <h2 id="top-movers-heading" className="text-lg font-semibold">
